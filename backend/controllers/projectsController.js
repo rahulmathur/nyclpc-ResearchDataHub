@@ -193,21 +193,27 @@ async function getSitesWithAttributes(req, res) {
     `, [projectId]);
     const attributes = attrsResult.rows;
     
-    // Get all sites
+    // Get only sites linked to this project
     const sitesResult = await pool.query(`
-      SELECT hub_site_id FROM hub_sites ORDER BY hub_site_id
-    `);
+      SELECT hs.hub_site_id 
+      FROM hub_sites hs
+      JOIN lnk_project_site lps ON hs.hub_site_id = lps.hub_site_id
+      WHERE lps.hub_project_id = $1
+      ORDER BY hs.hub_site_id
+    `, [projectId]);
     
     // Build sites map for quick lookup
     const sitesMap = new Map();
+    const siteIds = [];
     for (const s of sitesResult.rows) {
       sitesMap.set(s.hub_site_id, { hub_site_id: s.hub_site_id, id: s.hub_site_id });
+      siteIds.push(s.hub_site_id);
     }
     
-    // Batch fetch all attribute data and assign to sites
+    // Batch fetch attribute data only for project's sites
     for (const attr of attributes) {
       const attrKey = `attr_${attr.attribute_id}`;
-      const attrData = await getBatchAttributeValues(pool, attr);
+      const attrData = await getBatchAttributeValues(pool, attr, siteIds);
       
       // Assign values to sites
       for (const [siteId, site] of sitesMap) {
@@ -230,23 +236,31 @@ async function getSitesWithAttributes(req, res) {
   }
 }
 
-// Batch fetch all values for an attribute across all sites
-async function getBatchAttributeValues(pool, attr) {
+// Batch fetch values for an attribute, optionally filtered by site IDs
+async function getBatchAttributeValues(pool, attr, siteIds = null) {
   const attrText = attr.attribute_text;
   const attrType = attr.attribute_type;
   const result = new Map(); // siteId -> pipe-separated values
   
+  // Build WHERE clause for filtering by site IDs
+  const siteFilter = siteIds && siteIds.length > 0 
+    ? `AND hub_site_id = ANY($2)` 
+    : '';
+  const siteFilterNoAlias = siteIds && siteIds.length > 0 
+    ? `WHERE hub_site_id = ANY($1)` 
+    : '';
+  const params = siteIds && siteIds.length > 0 ? [siteIds] : [];
+  
   try {
-    let rows = [];
-    
     if (attrType === 'int' || attrType === 'txt' || attrType === 'num' || attrType === 'ts') {
       // Generic attributes from sat_site_attributes
+      const queryParams = [attr.attribute_id, ...(siteIds?.length ? [siteIds] : [])];
       const query = await pool.query(`
         SELECT hub_site_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts
         FROM sat_site_attributes
-        WHERE attribute_id = $1
+        WHERE attribute_id = $1 ${siteFilter}
         ORDER BY hub_site_id, start_dt
-      `, [attr.attribute_id]);
+      `, queryParams);
       
       const grouped = new Map();
       for (const row of query.rows) {
@@ -267,18 +281,19 @@ async function getBatchAttributeValues(pool, attr) {
       
     } else if (attrType === 'tbl') {
       if (attrText === 'bbl') {
-        const query = await pool.query(`SELECT hub_site_id, bbl FROM sat_site_bbl ORDER BY hub_site_id, start_dt`);
+        const query = await pool.query(`SELECT hub_site_id, bbl FROM sat_site_bbl ${siteFilterNoAlias} ORDER BY hub_site_id, start_dt`, params);
         groupAndSet(query.rows, result, 'bbl');
       } else if (attrText === 'built') {
-        const query = await pool.query(`SELECT hub_site_id, date_combo FROM sat_site_built ORDER BY hub_site_id, start_dt`);
+        const query = await pool.query(`SELECT hub_site_id, date_combo FROM sat_site_built ${siteFilterNoAlias} ORDER BY hub_site_id, start_dt`, params);
         groupAndSet(query.rows, result, 'date_combo');
       } else if (attrText === 'alteration') {
         const query = await pool.query(`
           SELECT sa.hub_site_id, a.alteration_nm
           FROM sat_site_alteration sa
           JOIN ref_alteration a ON sa.alteration_id = a.alteration_id
+          ${siteIds?.length ? 'WHERE sa.hub_site_id = ANY($1)' : ''}
           ORDER BY sa.hub_site_id, sa.sort_order
-        `);
+        `, params);
         groupAndSet(query.rows, result, 'alteration_nm');
       }
       
@@ -288,32 +303,36 @@ async function getBatchAttributeValues(pool, attr) {
           SELECT sm.hub_site_id, m.material_nm
           FROM sat_site_material sm
           JOIN ref_material m ON sm.material_id = m.material_id
+          ${siteIds?.length ? 'WHERE sm.hub_site_id = ANY($1)' : ''}
           ORDER BY sm.hub_site_id, sm.sort_order
-        `);
+        `, params);
         groupAndSet(query.rows, result, 'material_nm');
       } else if (attrText === 'style') {
         const query = await pool.query(`
           SELECT ss.hub_site_id, s.style_nm
           FROM sat_site_style ss
           JOIN ref_style s ON ss.style_id = s.style_id
+          ${siteIds?.length ? 'WHERE ss.hub_site_id = ANY($1)' : ''}
           ORDER BY ss.hub_site_id, ss.sort_order
-        `);
+        `, params);
         groupAndSet(query.rows, result, 'style_nm');
       } else if (attrText === 'type') {
         const query = await pool.query(`
           SELECT st.hub_site_id, t.type_nm
           FROM sat_site_type st
           JOIN ref_type t ON st.type_id = t.type_id
+          ${siteIds?.length ? 'WHERE st.hub_site_id = ANY($1)' : ''}
           ORDER BY st.hub_site_id, st.sort_order
-        `);
+        `, params);
         groupAndSet(query.rows, result, 'type_nm');
       } else if (attrText === 'use') {
         const query = await pool.query(`
           SELECT su.hub_site_id, u.use_nm
           FROM sat_site_use su
           JOIN ref_use u ON su.use_id = u.use_id
+          ${siteIds?.length ? 'WHERE su.hub_site_id = ANY($1)' : ''}
           ORDER BY su.hub_site_id, su.sort_order
-        `);
+        `, params);
         groupAndSet(query.rows, result, 'use_nm');
       }
     }

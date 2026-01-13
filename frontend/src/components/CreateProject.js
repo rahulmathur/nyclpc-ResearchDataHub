@@ -449,7 +449,7 @@ export default function CreateProject({ onCreated, onCancel, project }) {
                 {project && (
                   <>
                     <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
-                      Add Sites ({selectedSites.length})
+                      View Sites ({selectedSites.length})
                     </Button>
                     <Button onClick={() => setAttributeModalOpen(true)} style={{ marginLeft: 8 }}>
                       Site Attributes ({selectedAttributes.length})
@@ -501,7 +501,6 @@ export default function CreateProject({ onCreated, onCancel, project }) {
             open={siteModalOpen} 
             onClose={() => setSiteModalOpen(false)} 
             projectId={project.id} 
-            onSitesSelected={setSelectedSites}
           />
         )}
 
