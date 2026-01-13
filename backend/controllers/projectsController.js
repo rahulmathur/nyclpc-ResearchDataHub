@@ -111,4 +111,78 @@ async function deleteProject(req, res) {
   }
 }
 
-module.exports = { listProjects, getProjectSites, createProject, updateProject, deleteProject };
+// Get site attributes for a project
+async function getProjectSiteAttributes(req, res) {
+  const { projectId } = req.params;
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const result = await getPool().query(`
+      SELECT psa.sat_project_site_attributes_id, psa.hub_project_id, psa.attribute_id, psa.create_dt,
+             ra.attribute_nm, ra.attribute_text, ra.attribute_desc, ra.attribute_type
+      FROM sat_project_site_attributes psa
+      JOIN ref_attributes ra ON psa.attribute_id = ra.attribute_id
+      WHERE psa.hub_project_id = $1
+      ORDER BY ra.attribute_nm
+    `, [projectId]);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// Update site attributes for a project (replace all)
+async function updateProjectSiteAttributes(req, res) {
+  const { projectId } = req.params;
+  const { attributeIds } = req.body || {};
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    if (!Array.isArray(attributeIds)) {
+      return res.status(400).json({ error: 'attributeIds must be an array' });
+    }
+
+    // Delete existing attributes for this project
+    await getPool().query(
+      'DELETE FROM sat_project_site_attributes WHERE hub_project_id = $1',
+      [projectId]
+    );
+
+    // Insert new attributes
+    for (const attrId of attributeIds) {
+      await getPool().query(
+        'INSERT INTO sat_project_site_attributes (hub_project_id, attribute_id) VALUES ($1, $2)',
+        [projectId, attrId]
+      );
+    }
+
+    res.json({ success: true, count: attributeIds.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// Get all available site attributes (attribute_p_or_s = 'S')
+async function getSiteAttributes(req, res) {
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const result = await getPool().query(`
+      SELECT attribute_id, attribute_nm, attribute_text, attribute_desc, attribute_type
+      FROM ref_attributes
+      WHERE attribute_p_or_s = 'S'
+      ORDER BY attribute_nm
+    `);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+module.exports = { 
+  listProjects, 
+  getProjectSites, 
+  createProject, 
+  updateProject, 
+  deleteProject,
+  getProjectSiteAttributes,
+  updateProjectSiteAttributes,
+  getSiteAttributes
+};

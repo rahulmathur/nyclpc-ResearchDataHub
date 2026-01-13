@@ -82,6 +82,9 @@ app.post('/api/projects', projectsController.createProject);
 app.put('/api/projects/:projectId', projectsController.updateProject);
 app.delete('/api/projects/:projectId', projectsController.deleteProject);
 app.get('/api/projects/:projectId/sites', projectsController.getProjectSites);
+app.get('/api/projects/:projectId/site-attributes', projectsController.getProjectSiteAttributes);
+app.put('/api/projects/:projectId/site-attributes', projectsController.updateProjectSiteAttributes);
+app.get('/api/site-attributes', projectsController.getSiteAttributes);
 
 // Table/columns/projects routes are now implemented in separate controllers (see ./controllers/*)
 

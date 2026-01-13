@@ -3,6 +3,7 @@ import { Segment, Header, Form, Button, Grid, Message } from 'semantic-ui-react'
 import axios from 'axios';
 import './CreateProject.css';
 import SiteSelectionModal from './SiteSelectionModal';
+import AttributeSelectionModal from './AttributeSelectionModal';
 
 export default function CreateProject({ onCreated, onCancel, project }) {
   const [form, setForm] = useState({
@@ -21,6 +22,8 @@ export default function CreateProject({ onCreated, onCancel, project }) {
   const [errors, setErrors] = useState({});
   const [siteModalOpen, setSiteModalOpen] = useState(false);
   const [selectedSites, setSelectedSites] = useState([]);
+  const [attributeModalOpen, setAttributeModalOpen] = useState(false);
+  const [selectedAttributes, setSelectedAttributes] = useState([]);
 
   const mapRef = useRef();
   const mapViewRef = useRef();
@@ -171,6 +174,20 @@ export default function CreateProject({ onCreated, onCancel, project }) {
         setSelectedSites(projectSites.map(ps => ps.hub_site_id));
       } catch (err) {
         console.error('Failed to load project sites:', err);
+      }
+    })();
+  }, [project?.id]);
+
+  // Load selected site attributes for the project
+  useEffect(() => {
+    if (!project?.id) return;
+    (async () => {
+      try {
+        const response = await axios.get(`/api/projects/${project.id}/site-attributes`);
+        const projectAttrs = response.data?.data || [];
+        setSelectedAttributes(projectAttrs.map(pa => pa.attribute_id));
+      } catch (err) {
+        console.error('Failed to load project site attributes:', err);
       }
     })();
   }, [project?.id]);
@@ -434,6 +451,9 @@ export default function CreateProject({ onCreated, onCancel, project }) {
                     <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
                       Add Sites ({selectedSites.length})
                     </Button>
+                    <Button onClick={() => setAttributeModalOpen(true)} style={{ marginLeft: 8 }}>
+                      Site Attributes ({selectedAttributes.length})
+                    </Button>
                     <Button color="red" onClick={async () => {
                       if (!project?.id) return;
                       if (!window.confirm('Are you sure you want to delete this project?')) return;
@@ -482,6 +502,15 @@ export default function CreateProject({ onCreated, onCancel, project }) {
             onClose={() => setSiteModalOpen(false)} 
             projectId={project.id} 
             onSitesSelected={setSelectedSites}
+          />
+        )}
+
+        {project && (
+          <AttributeSelectionModal
+            open={attributeModalOpen}
+            onClose={() => setAttributeModalOpen(false)}
+            projectId={project.id}
+            onAttributesSelected={setSelectedAttributes}
           />
         )}
       </Segment>
