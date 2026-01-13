@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input, Table, Checkbox, Message, Dimmer, Loader } from 'semantic-ui-react';
 import axios from 'axios';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Checkbox } from './ui/checkbox';
+import { Alert, AlertDescription } from './ui/alert';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from './ui/dialog';
 
 export default function SiteSelectionModal({ open, onClose, projectId, onSitesSelected }) {
   const [sites, setSites] = useState([]);
@@ -102,72 +114,82 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
   });
 
   return (
-    <Modal open={open} onClose={onClose} size="large">
-      <Modal.Header>Select Sites for Project</Modal.Header>
-      <Modal.Content scrolling>
-        {error && <Message negative content={error} />}
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Select Sites for Project</DialogTitle>
+          <DialogDescription>Choose which sites to link to this project</DialogDescription>
+        </DialogHeader>
+
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         
         <Input
           placeholder="Search by site name or ID..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ marginBottom: 16, width: '100%' }}
+          className="mb-4"
         />
 
-        <Dimmer active={loading} inverted>
-          <Loader>Loading sites...</Loader>
-        </Dimmer>
+        {loading && <div className="text-center text-slate-500 py-4">Loading sites...</div>}
 
         {!loading && (
           <>
-            <div style={{ marginBottom: 12 }}>
+            <div className="mb-4 flex items-center gap-2">
               <Checkbox
-                label={`Select All (${filteredSites.length})`}
+                id="select-all"
                 checked={selectedSites.size === filteredSites.length && filteredSites.length > 0}
-                onChange={handleSelectAll}
+                onCheckedChange={handleSelectAll}
               />
+              <label htmlFor="select-all" className="text-sm font-medium">
+                Select All ({filteredSites.length})
+              </label>
             </div>
 
-            <Table celled compact>
-              <Table.Header>
-                <Table.Row>
-                  <Table.HeaderCell width={1}></Table.HeaderCell>
-                  <Table.HeaderCell>Site ID</Table.HeaderCell>
-                  <Table.HeaderCell>Site Name</Table.HeaderCell>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {filteredSites.map((site) => {
-                  const siteId = site.hub_site_id || site.id;
-                  const siteName = site.site_name || site.name || '';
-                  return (
-                    <Table.Row key={siteId}>
-                      <Table.Cell textAlign="center">
-                        <Checkbox
-                          checked={selectedSites.has(siteId)}
-                          onChange={() => handleToggleSite(siteId)}
-                        />
-                      </Table.Cell>
-                      <Table.Cell>{siteId}</Table.Cell>
-                      <Table.Cell>{siteName}</Table.Cell>
-                    </Table.Row>
-                  );
-                })}
-              </Table.Body>
-            </Table>
+            <div className="border rounded-md overflow-x-auto max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12"></TableHead>
+                    <TableHead>Site ID</TableHead>
+                    <TableHead>Site Name</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredSites.map((site) => {
+                    const siteId = site.hub_site_id || site.id;
+                    const siteName = site.site_name || site.name || '';
+                    return (
+                      <TableRow key={siteId}>
+                        <TableCell className="w-12">
+                          <Checkbox
+                            checked={selectedSites.has(siteId)}
+                            onCheckedChange={() => handleToggleSite(siteId)}
+                          />
+                        </TableCell>
+                        <TableCell>{siteId}</TableCell>
+                        <TableCell>{siteName}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
 
             {filteredSites.length === 0 && !loading && (
-              <Message info content="No sites found matching your search." />
+              <Alert>
+                <AlertDescription>No sites found matching your search.</AlertDescription>
+              </Alert>
             )}
           </>
         )}
-      </Modal.Content>
-      <Modal.Actions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button primary onClick={handleSave} loading={saving} disabled={saving}>
-          Save Selection ({selectedSites.size} selected)
-        </Button>
-      </Modal.Actions>
-    </Modal>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || loading}>
+            Save Selection ({selectedSites.size} selected)
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

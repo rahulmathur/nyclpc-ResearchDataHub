@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import { Segment, Header, List, Loader, Message, Button, Grid, Card } from 'semantic-ui-react';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import './Wizard.css';
 
 function Wizard() {
@@ -23,9 +25,8 @@ function Wizard() {
   useEffect(() => {
     // when step 1 is active and projects are loaded, focus the first project item for keyboard users
     if (step === 1 && projectsRef.current) {
-      // List.Item uses role="button" and may not render as <li>; query for role attribute
-      const firstItem = projectsRef.current.querySelector('[role="button"]');
-      if (firstItem && typeof firstItem.focus === 'function') firstItem.focus();
+      const firstButton = projectsRef.current.querySelector('button');
+      if (firstButton && typeof firstButton.focus === 'function') firstButton.focus();
     }
   }, [step, projects]);
 
@@ -84,98 +85,106 @@ function Wizard() {
 
   return (
     <div className="wizard">
-      <Segment>
-        <Grid columns={2} verticalAlign="middle">
-          <Grid.Column>
-            <Header as="h2">Project → Site Wizard</Header>
-          </Grid.Column>
-          <Grid.Column textAlign="right">
-            <div className="wizard-steps">Step {step} of 2</div>
-          </Grid.Column>
-        </Grid>
+      <Card>
+        <CardHeader className="flex justify-between items-center">
+          <CardTitle>Project → Site Wizard</CardTitle>
+          <div className="text-sm text-slate-600">Step {step} of 2</div>
+        </CardHeader>
 
-        {error && <Message negative content={error} />}
+        <CardContent className="space-y-6">
+          {error && (
+            <Alert variant="destructive">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-        {step === 1 && (
-          <div className="wizard-step">
-            <Header as="h4">Select a project from the list below</Header>
+          {step === 1 && (
+            <div className="wizard-step">
+              <h3 className="text-lg font-semibold mb-4">Select a project from the list below</h3>
 
-            {loadingProjects ? (
-              <Loader active inline="centered">Loading projects...</Loader>
-            ) : projects.length === 0 ? (
-              <div className="empty">
-                <Message info>
-                  <Message.Header>No projects found</Message.Header>
-                  <p>If you expect projects to exist, confirm the backend `/api/projects` response.</p>
-                </Message>
-                {lastProjectsRaw && (
-                  <details style={{ marginTop: 8 }}>
-                    <summary style={{ cursor: 'pointer' }}>Show raw API response</summary>
-                    <pre style={{ maxHeight: 200, overflow: 'auto', background: '#0a0a0a', padding: 8, borderRadius: 6 }}>{JSON.stringify(lastProjectsRaw, null, 2)}</pre>
-                  </details>
-                )}
-              </div>
-            ) : (
-              <div ref={projectsRef} className="project-list-container" aria-label="Project list">
-                <List selection divided>
-                {projects.map((p, idx) => (
-                  <List.Item
-                    key={getId(p) || `p-${idx}`}
-                    onClick={() => selectProject(p)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectProject(p); }}
-                    aria-label={`Select project ${getName(p)}`}
-                  >
-                    <List.Content>
-                      <List.Header>{getName(p)}</List.Header>
-                      <List.Description>ID: {getId(p)}</List.Description>
-                    </List.Content>
-                  </List.Item>
-                ))}
-                </List>
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="wizard-step">
-            <Header as="h4">Selected project: <strong>{selectedProject?.name || selectedProject?.id}</strong></Header>
-            <p>Select a site linked to this project.</p>
-
-            {loadingSites ? (
-              <Loader active inline="centered">Loading sites...</Loader>
-            ) : sites.length === 0 ? (
-              <Message info content="No sites found for this project" />
-            ) : (
-              <Card.Group itemsPerRow={3}>
-                {sites.map((s, idx) => (
-                  <Card
-                    key={getId(s) || `s-${idx}`}
-                    onClick={() => setSelectedSite(s)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedSite(s); }}
-                    aria-label={`Select site ${getName(s)}`}
-                    color={getId(selectedSite) === getId(s) ? 'green' : undefined}
-                  >
-                    <Card.Content>
-                      <Card.Header>{getName(s)}</Card.Header>
-                      <Card.Meta>ID: {getId(s)}</Card.Meta>
-                    </Card.Content>
-                  </Card>
-                ))}
-              </Card.Group>
-            )}
-
-            <div className="wizard-actions" style={{ marginTop: 12 }}>
-              <Button onClick={() => setStep(1)}>← Back</Button>
-              <Button primary onClick={confirm} disabled={!selectedSite}>Confirm</Button>
+              {loadingProjects ? (
+                <div className="text-center text-slate-500 py-4">Loading projects...</div>
+              ) : projects.length === 0 ? (
+                <div className="empty">
+                  <Alert>
+                    <AlertTitle>No projects found</AlertTitle>
+                    <AlertDescription>If you expect projects to exist, confirm the backend `/api/projects` response.</AlertDescription>
+                  </Alert>
+                  {lastProjectsRaw && (
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer' }}>Show raw API response</summary>
+                      <pre style={{ maxHeight: 200, overflow: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 6, fontSize: '0.85rem' }}>{JSON.stringify(lastProjectsRaw, null, 2)}</pre>
+                    </details>
+                  )}
+                </div>
+              ) : (
+                <div ref={projectsRef} className="project-list-container space-y-2" aria-label="Project list">
+                  {projects.map((p, idx) => (
+                    <Button
+                      key={getId(p) || `p-${idx}`}
+                      onClick={() => selectProject(p)}
+                      variant="outline"
+                      className="w-full justify-start text-left h-auto py-3"
+                      aria-label={`Select project ${getName(p)}`}
+                    >
+                      <div>
+                        <div className="font-medium">{getName(p)}</div>
+                        <div className="text-sm text-slate-500">ID: {getId(p)}</div>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-      </Segment>
+          )}
+
+          {step === 2 && (
+            <div className="wizard-step">
+              <h3 className="text-lg font-semibold mb-2">
+                Selected project: <strong>{selectedProject?.name || selectedProject?.id}</strong>
+              </h3>
+              <p className="text-slate-600 mb-6">Select a site linked to this project.</p>
+
+              {loadingSites ? (
+                <div className="text-center text-slate-500 py-4">Loading sites...</div>
+              ) : sites.length === 0 ? (
+                <Alert>
+                  <AlertDescription>No sites found for this project</AlertDescription>
+                </Alert>
+              ) : (
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  {sites.map((s, idx) => (
+                    <Card
+                      key={getId(s) || `s-${idx}`}
+                      onClick={() => setSelectedSite(s)}
+                      className={`cursor-pointer transition-colors ${
+                        getId(selectedSite) === getId(s)
+                          ? 'border-green-500 bg-green-50'
+                          : 'hover:border-slate-400'
+                      }`}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedSite(s); }}
+                      aria-label={`Select site ${getName(s)}`}
+                    >
+                      <CardContent className="pt-4">
+                        <div className="font-medium">{getName(s)}</div>
+                        <div className="text-sm text-slate-500">ID: {getId(s)}</div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-between mt-6">
+                <Button variant="outline" onClick={() => setStep(1)}>← Back</Button>
+                <Button onClick={confirm} disabled={!selectedSite}>Confirm</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
