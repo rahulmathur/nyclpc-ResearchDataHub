@@ -192,11 +192,11 @@ async function getSitesWithAttributes(req, res) {
     `, [projectId]);
     const attributes = attrsResult.rows;
     
-    // Get all sites
+    // Get all sites (hub_sites only has hub_site_id and create_dt)
     const sitesResult = await getPool().query(`
-      SELECT hub_site_id, site_name FROM hub_sites ORDER BY hub_site_id
+      SELECT hub_site_id FROM hub_sites ORDER BY hub_site_id
     `);
-    const sites = sitesResult.rows.map(s => ({ ...s, id: s.hub_site_id }));
+    const sites = sitesResult.rows.map(s => ({ hub_site_id: s.hub_site_id, id: s.hub_site_id }));
     
     // For each site, get attribute values
     for (const site of sites) {

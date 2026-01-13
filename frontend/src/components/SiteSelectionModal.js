@@ -99,7 +99,6 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
   };
 
   const filteredSites = sites.filter(s => {
-    const name = (s.site_name || s.name || '').toLowerCase();
     const id = (s.hub_site_id || s.id || '').toString();
     const term = searchTerm.toLowerCase();
     
@@ -113,7 +112,7 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
       }
     }
     
-    return name.includes(term) || id.includes(term) || attrMatch;
+    return id.includes(term) || attrMatch;
   });
 
   return (
@@ -123,7 +122,7 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
         {error && <Message negative content={error} />}
         
         <Input
-          placeholder="Search by site name, ID, or attribute values..."
+          placeholder="Search by site ID or attribute values..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{ marginBottom: 16, width: '100%' }}
@@ -155,7 +154,6 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
                   <Table.Row>
                     <Table.HeaderCell style={{ width: 50 }}></Table.HeaderCell>
                     <Table.HeaderCell style={{ minWidth: 80 }}>Site ID</Table.HeaderCell>
-                    <Table.HeaderCell style={{ minWidth: 150 }}>Site Name</Table.HeaderCell>
                     {attributes.map(attr => (
                       <Table.HeaderCell key={attr.id} style={{ minWidth: 120 }}>
                         {attr.name}
@@ -166,7 +164,6 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
                 <Table.Body>
                   {filteredSites.map((site) => {
                     const siteId = site.hub_site_id || site.id;
-                    const siteName = site.site_name || site.name || '';
                     return (
                       <Table.Row key={siteId}>
                         <Table.Cell textAlign="center">
@@ -176,7 +173,6 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
                           />
                         </Table.Cell>
                         <Table.Cell>{siteId}</Table.Cell>
-                        <Table.Cell>{siteName}</Table.Cell>
                         {attributes.map(attr => (
                           <Table.Cell key={attr.id} style={{ 
                             maxWidth: 250, 
