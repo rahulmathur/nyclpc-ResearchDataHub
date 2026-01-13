@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="48" viewBox="0 0 220 48" role="img" aria-label="NYC Landmarks Preservation Commission logo">
+  <defs>
+    <style>
+      .title { font: 700 16px/1.1 'IBM Plex Sans', Arial, sans-serif; fill: #0b3d91; }
+      .subtitle { font: 500 11px/1.1 'IBM Plex Sans', Arial, sans-serif; fill: #333; }
+      .accent { fill: #d39e00; }
+    </style>
+  </defs>
+  <rect width="220" height="48" fill="transparent" />
+  <text x="0" y="16" class="title">NYC Landmarks</text>
+  <text x="0" y="34" class="subtitle">Preservation Commission</text>
+  <circle cx="190" cy="24" r="8" class="accent" />
+  <text x="184" y="28" font-size="9" text-anchor="middle" fill="#fff">NYC</text>
+</svg>

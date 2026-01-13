@@ -1,0 +1,13 @@
+.create-project { padding: 1rem; }
+.muted { color: var(--text-dim); }
+.map-note { font-size: 0.9rem; }
+
+/* ArcGIS Map Styles */
+.esri-view {
+  border-radius: 4px;
+}
+
+.esri-ui {
+  font-family: inherit;
+}
+

@@ -1,0 +1,58 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 320' role='img' aria-label='Research Data Hub logo'>
+  <defs>
+    <style>
+      .dot { fill: #111; }
+      .word { font: 700 20px/1.1 'IBM Plex Sans', Arial, sans-serif; fill: #111; }
+    </style>
+  </defs>
+  <!-- grid of dots -->
+  <g transform='translate(12,12)' fill='#111' opacity='1'>
+    <!-- 5x5 grid -->
+    <g id='grid' transform='translate(0,0)'>
+      <g transform='translate(0,0)'>
+        <circle cx='20' cy='20' r='6' class='dot'/>
+        <circle cx='76' cy='20' r='6' class='dot'/>
+        <circle cx='132' cy='20' r='6' class='dot'/>
+        <circle cx='188' cy='20' r='6' class='dot'/>
+        <circle cx='244' cy='20' r='6' class='dot'/>
+
+        <circle cx='20' cy='76' r='6' class='dot'/>
+        <circle cx='76' cy='76' r='6' class='dot'/>
+        <circle cx='132' cy='76' r='6' class='dot'/>
+        <circle cx='188' cy='76' r='6' class='dot'/>
+        <circle cx='244' cy='76' r='6' class='dot'/>
+
+        <circle cx='20' cy='132' r='6' class='dot'/>
+        <circle cx='76' cy='132' r='6' class='dot'/>
+        <circle cx='132' cy='132' r='6' class='dot'/>
+        <circle cx='188' cy='132' r='6' class='dot'/>
+        <circle cx='244' cy='132' r='6' class='dot'/>
+
+        <circle cx='20' cy='188' r='6' class='dot'/>
+        <circle cx='76' cy='188' r='6' class='dot'/>
+        <circle cx='132' cy='188' r='6' class='dot'/>
+        <circle cx='188' cy='188' r='6' class='dot'/>
+        <circle cx='244' cy='188' r='6' class='dot'/>
+
+        <circle cx='20' cy='244' r='6' class='dot'/>
+        <circle cx='76' cy='244' r='6' class='dot'/>
+        <circle cx='132' cy='244' r='6' class='dot'/>
+        <circle cx='188' cy='244' r='6' class='dot'/>
+        <circle cx='244' cy='244' r='6' class='dot'/>
+      </g>
+    </g>
+    <!-- central node + spokes -->
+    <g transform='translate(88,88)'>
+      <circle cx='44' cy='44' r='18' fill='#111' />
+      <path d='M44 44 L10 10' stroke='#111' stroke-width='8' stroke-linecap='round' />
+      <path d='M44 44 L78 10' stroke='#111' stroke-width='8' stroke-linecap='round' />
+      <path d='M44 44 L10 78' stroke='#111' stroke-width='8' stroke-linecap='round' />
+      <path d='M44 44 L78 78' stroke='#111' stroke-width='8' stroke-linecap='round' />
+      <circle cx='10' cy='10' r='6' fill='#111' />
+      <circle cx='78' cy='10' r='6' fill='#111' />
+      <circle cx='10' cy='78' r='6' fill='#111' />
+      <circle cx='78' cy='78' r='6' fill='#111' />
+    </g>
+  </g>
+  <text x='12' y='300' class='word'>Research Data Hub</text>
+</svg>

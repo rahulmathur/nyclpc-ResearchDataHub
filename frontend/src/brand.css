@@ -1,0 +1,12 @@
+/* LPC brand variables and helper classes (approximations) */
+:root {
+  --lpc-blue: #0b3d91;
+  --lpc-gold: #d39e00;
+  --lpc-blue-contrast: #ffffff;
+  --lpc-gold-contrast: #111111;
+}
+
+/* Accessibility helpers */
+.brand-contrast { color: var(--lpc-blue-contrast); background: var(--lpc-blue); padding: 4px 8px; border-radius: 4px; }
+
+.brand-contrast a { color: var(--lpc-blue-contrast); text-decoration: underline; }

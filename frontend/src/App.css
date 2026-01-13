@@ -1,0 +1,280 @@
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #13131a;
+  --bg-tertiary: #1a1a24;
+  --bg-hover: #20202e;
+  --accent-primary: #00ff88;
+  --accent-secondary: #00ccff;
+  --accent-tertiary: #ff00ff;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0b8;
+  --text-dim: #606078;
+  --border-color: #2a2a38;
+  --success: #00ff88;
+  --error: #ff3366;
+  --warning: #ffaa00;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Anybody', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header visuals are handled by Semantic UI Menu; keep branding and layout variables above. */
+:root {
+  /* LPC brand (approximated) */
+  --lpc-blue: #0b3d91;
+  --lpc-gold: #d39e00;
+}
+
+.logo-section { display:flex; align-items:center; gap:0.75rem; }
+.lpc-logo { width: 56px; height: auto; display:block; }
+.app-title { font-size: 1.45rem; font-weight:700; }
+.agency-link { display:block; font-size: 0.85rem; color: var(--text-dim); text-decoration: none; }
+.agency-link:hover { color: var(--lpc-blue); text-decoration: underline; }
+
+.brand-bar {
+  background: linear-gradient(90deg, rgba(11,61,145,0.05), rgba(211,158,0,0.03));
+  border-top: 1px solid rgba(255,255,255,0.03);
+  padding: 6px 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.site-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 12px 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.02));
+}
+
+/* Body Layout */
+.app-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.tables-view {
+  display: flex;
+  width: 100%;
+  height: calc(100vh - 180px);
+}
+
+/* Sidebar */
+.sidebar {
+  width: 280px;
+  background: var(--bg-secondary);
+  border-right: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 1.5rem;
+  border-bottom: 2px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-tertiary);
+}
+
+.sidebar-header h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  font-family: 'IBM Plex Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.refresh-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refresh-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: rotate(180deg);
+}
+
+.tables-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  padding: 0.5rem;
+}
+
+.tables-list li {
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.table-icon {
+  font-size: 0.8rem;
+  transition: transform 0.3s;
+}
+
+.tables-list li:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+  transform: translateX(5px);
+  color: var(--text-primary);
+}
+
+.tables-list li:hover .table-icon {
+  transform: translateX(3px);
+  color: var(--accent-primary);
+}
+
+.tables-list li.active {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 204, 255, 0.1) 100%);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 255, 136, 0.15);
+}
+
+.tables-list li.active .table-icon {
+  transform: rotate(90deg) translateY(-3px);
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  background: var(--bg-primary);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.welcome-screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 50%, rgba(0, 204, 255, 0.05) 0%, transparent 50%);
+}
+
+.welcome-content {
+  text-align: center;
+  animation: fadeIn 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.welcome-content h2 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.welcome-content p {
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Loading and Empty States */
+.loading, .empty-state {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.loading {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Scrollbar Styles */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .sidebar {
+    width: 100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 2px solid var(--border-color);
+  }
+  
+  .tables-view {
+    flex-direction: column;
+    height: auto;
+  }
+}
+
+/* Import brand overrides */
+@import './brand.css';

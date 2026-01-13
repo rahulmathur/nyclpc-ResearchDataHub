@@ -1,0 +1,38 @@
+.splash-page { padding: 2rem; }
+.splash-sub { color: var(--text-dim); margin-bottom: 1rem; }
+.splash-grid { margin-top: 1.5rem; }
+.splash-btn { width: 220px; }
+.splash-desc { margin-top: 0.75rem; color: var(--text-dim); font-size: 0.9rem; }
+
+/* Hero header */
+.splash-hero {
+  /* Use src asset so webpack can resolve at build time */
+  background-image: url('../assets/research-hero.svg');
+  background-size: cover;
+  background-position: center center;
+  height: 320px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.splash-hero-overlay {
+  background: linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.2) 60%);
+  width: 100%;
+  padding: 36px 48px;
+}
+
+.splash-hero-left { max-width: 720px; }
+.splash-hero .inverted { color: #fff !important; }
+.splash-sub.inverted { color: rgba(255,255,255,0.9) !important; margin-top: .4rem; }
+.hero-logo { display: block; max-width: 320px; margin: 12px 0 4px; }
+.hero-ctas { margin-top: 16px; }
+.hero-ctas .signup-btn { margin-right: 8px; }
+
+.splash-footer-text { margin-top: 18px; font-weight: 600; text-align: center; color: var(--text-dim); }
+
+@media (max-width: 768px) {
+  .splash-btn { width: 100%; }
+  .splash-hero { height: 240px; }
+  .splash-hero-overlay { padding: 20px; }
+}
