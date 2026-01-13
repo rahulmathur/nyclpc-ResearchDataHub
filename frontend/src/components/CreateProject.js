@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Segment, Header, Form, Button, Grid, Message } from 'semantic-ui-react';
 import axios from 'axios';
 import './CreateProject.css';
+import SiteSelectionModal from './SiteSelectionModal';
 
 export default function CreateProject({ onCreated, onCancel, project }) {
   const [form, setForm] = useState({
@@ -18,6 +19,8 @@ export default function CreateProject({ onCreated, onCancel, project }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [errors, setErrors] = useState({});
+  const [siteModalOpen, setSiteModalOpen] = useState(false);
+  const [selectedSites, setSelectedSites] = useState([]);
 
   const mapRef = useRef();
   const mapViewRef = useRef();
@@ -157,6 +160,109 @@ export default function CreateProject({ onCreated, onCancel, project }) {
       }
     }
   }, [project, schemaFields]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load selected sites for the project
+  useEffect(() => {
+    if (!project?.id) return;
+    (async () => {
+      try {
+        const response = await axios.get('/api/table/lnk_project_site');
+        const projectSites = response.data?.data?.filter(ps => ps.hub_project_id === project.id) || [];
+        setSelectedSites(projectSites.map(ps => ps.hub_site_id));
+      } catch (err) {
+        console.error('Failed to load project sites:', err);
+      }
+    })();
+  }, [project?.id]);
+
+  // Load and display site geometries on map when selected sites change
+  useEffect(() => {
+    if (!selectedSites.length || !mapViewRef.current || !window.require) return;
+
+    (async () => {
+      try {
+        const response = await axios.get('/api/table/sat_site_geometry');
+        const allGeoms = response.data?.data || [];
+        const siteGeoms = allGeoms.filter(g => selectedSites.includes(g.hub_site_id));
+
+        window.require(['esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
+          (Graphic, Polygon, Polyline, Point) => {
+            mapViewRef.current.graphics.removeAll();
+            let bounds = null;
+
+            const getCentroid = (geomData) => {
+              try {
+                if (geomData.type === 'Point') {
+                  return { x: geomData.coordinates[0], y: geomData.coordinates[1] };
+                } else if (geomData.type === 'LineString') {
+                  const mid = Math.floor(geomData.coordinates.length / 2);
+                  return { x: geomData.coordinates[mid][0], y: geomData.coordinates[mid][1] };
+                } else if (geomData.type === 'Polygon') {
+                  const ring = geomData.coordinates[0] || [];
+                  let x = 0, y = 0;
+                  ring.forEach(coord => { x += coord[0]; y += coord[1]; });
+                  return { x: x / ring.length, y: y / ring.length };
+                } else if (geomData.type === 'MultiPolygon') {
+                  let x = 0, y = 0, count = 0;
+                  geomData.coordinates.forEach(poly => {
+                    const ring = poly[0] || [];
+                    ring.forEach(coord => { x += coord[0]; y += coord[1]; count++; });
+                  });
+                  return count > 0 ? { x: x / count, y: y / count } : null;
+                }
+                return null;
+              } catch (e) { return null; }
+            };
+
+            siteGeoms.forEach((geom) => {
+              try {
+                let geomData = geom.shape;
+                if (typeof geomData === 'string') geomData = JSON.parse(geomData);
+                if (!geomData || !geomData.type) return;
+
+                let geometry = null, symbol = null;
+                const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
+                
+                if (geomData.type === 'MultiPolygon') {
+                  const rings = geomData.coordinates.map(poly => poly[0]);
+                  geometry = new Polygon({ rings, spatialReference: spatialRef });
+                  symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                } else if (geomData.type === 'Polygon') {
+                  geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
+                  symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                } else if (geomData.type === 'LineString') {
+                  geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
+                  symbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
+                } else if (geomData.type === 'Point') {
+                  geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
+                  symbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
+                }
+
+                if (geometry && symbol) {
+                  mapViewRef.current.graphics.add(new Graphic({ geometry, symbol }));
+                  if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
+                }
+
+                // Add pin at centroid
+                const centroid = getCentroid(geomData);
+                if (centroid) {
+                  const pinGeometry = new Point({ x: centroid.x, y: centroid.y, spatialReference: spatialRef });
+                  const pinSymbol = { type: 'simple-marker', style: 'circle', color: [0, 113, 188], size: 18, outline: { color: [255, 255, 255], width: 3 } };
+                  mapViewRef.current.graphics.add(new Graphic({ geometry: pinGeometry, symbol: pinSymbol }));
+                }
+              } catch (e) { console.warn('Geometry error:', e); }
+            });
+
+            if (bounds && siteGeoms.length > 0) {
+              mapViewRef.current.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
+            }
+          }
+        );
+      } catch (err) {
+        console.error('Failed to load site geometries:', err);
+      }
+    })();
+  }, [selectedSites]);
 
   const setPosition = ({ lat, lng }) => {
     setForm(prev => ({ ...prev, latitude: lat, longitude: lng }));
@@ -324,22 +430,28 @@ export default function CreateProject({ onCreated, onCancel, project }) {
                 <Button primary onClick={handleSubmit} loading={loading} disabled={loading}>{project ? 'Save Changes' : 'Create Project'}</Button>
                 <Button onClick={() => { if (onCancel) onCancel(); }} disabled={loading} style={{ marginLeft: 8 }}>Cancel</Button>
                 {project && (
-                  <Button color="red" onClick={async () => {
-                    if (!project?.id) return;
-                    if (!window.confirm('Are you sure you want to delete this project?')) return;
-                    setLoading(true);
-                    try {
-                      await axios.delete(`/api/projects/${project.id}`);
-                      setSuccess('Project deleted');
-                      if (onCreated) onCreated();
-                    } catch (err) {
-                      setError(err.response?.data?.error || err.message || 'Failed to delete project');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }} loading={loading} disabled={loading} style={{ marginLeft: 8 }}>
-                    Delete Project
-                  </Button>
+                  <>
+                    <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
+                      Add Sites ({selectedSites.length})
+                    </Button>
+                    <Button color="red" onClick={async () => {
+                      if (!project?.id) return;
+                      if (!window.confirm('Are you sure you want to delete this project?')) return;
+                      setLoading(true);
+                      try {
+                        await axios.delete(`/api/projects/${project.id}`);
+                        setSuccess('Project deleted');
+                        if (onCreated) onCreated();
+                      } catch (err) {
+                        setError(err.response?.data?.error || err.message || 'Failed to delete project');
+                      } finally {
+                        setLoading(false);
+                      }
+                    }} loading={loading} disabled={loading} style={{ marginLeft: 8 }}>
+                      Delete Project
+                    </Button>
+                  </>
+
                 )}
               </div>
             </Form>
@@ -363,6 +475,15 @@ export default function CreateProject({ onCreated, onCancel, project }) {
             </div>
           </Grid.Column>
         </Grid>
+
+        {project && (
+          <SiteSelectionModal 
+            open={siteModalOpen} 
+            onClose={() => setSiteModalOpen(false)} 
+            projectId={project.id} 
+            onSitesSelected={setSelectedSites}
+          />
+        )}
       </Segment>
     </div>
   );

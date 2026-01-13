@@ -153,135 +153,136 @@ export default function SiteDetail({ site, onBack }) {
     return () => { mounted = false; };
   }, [tables, site]);
 
-  // Initialize ArcGIS map
+  // Initialize ArcGIS map and load geometry
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!site) return;
 
-    const esriModules = window.require;
-    if (!esriModules) {
-      console.error('ArcGIS SDK not loaded');
-      return;
-    }
-
-    esriModules(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'], (Map, MapView, Extent) => {
-      const map = new Map({
-        basemap: 'arcgis-streets'
-      });
-
-      // NYC extent (west, south, east, north)
-      const nycExtent = new Extent({
-        xmin: -74.256,
-        ymin: 40.496,
-        xmax: -73.700,
-        ymax: 40.916,
-        spatialReference: { wkid: 4326 }
-      });
-
-      const view = new MapView({
-        container: mapRef.current,
-        map: map,
-        extent: nycExtent
-      });
-
-      mapViewRef.current = view;
-
-      return () => {
-        view.destroy();
-      };
-    });
-  }, []);
-
-  // Load geometry from sat_site_geometry and display on map
-  useEffect(() => {
-    if (!mapViewRef.current || !site || !window.require) return;
-
-    const siteId = site.hub_site_id || site.id;
-
-    window.require(['esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
-      (Graphic, Polygon, Polyline, Point) => {
-        (async () => {
-          try {
-            // Fetch geometry data for this site
-            const res = await axios.get('/api/table/sat_site_geometry');
-            const allGeoms = res.data?.data || [];
-            
-            // Filter geometries for this site
-            const siteGeoms = allGeoms.filter(g => g.hub_site_id === siteId);
-            
-            // Clear existing graphics
-            mapViewRef.current.graphics.removeAll();
-            
-            let bounds = null;
-            
-            // Add each geometry to the map
-            siteGeoms.forEach((geom) => {
-              let geometry = null;
-              let symbol = null;
-              
-              try {
-                // Parse geometry if it's stored as JSON string
-                const geomData = typeof geom.geometry === 'string' ? JSON.parse(geom.geometry) : geom.geometry;
-                
-                if (geomData.type === 'polygon' || geomData.rings) {
-                  geometry = new Polygon({ rings: geomData.rings || geomData.coordinates });
-                  symbol = {
-                    type: 'simple-fill',
-                    color: [226, 119, 40, 0.5],
-                    outline: {
-                      color: [226, 119, 40],
-                      width: 2
-                    }
-                  };
-                } else if (geomData.type === 'polyline' || geomData.paths) {
-                  geometry = new Polyline({ paths: geomData.paths || geomData.coordinates });
-                  symbol = {
-                    type: 'simple-line',
-                    color: [226, 119, 40],
-                    width: 2
-                  };
-                } else if (geomData.type === 'point') {
-                  geometry = new Point({
-                    longitude: geomData.x || geomData.coordinates?.[0],
-                    latitude: geomData.y || geomData.coordinates?.[1]
-                  });
-                  symbol = {
-                    type: 'simple-marker',
-                    color: [226, 119, 40],
-                    size: 10,
-                    outline: {
-                      color: [255, 255, 255],
-                      width: 2
-                    }
-                  };
-                }
-                
-                if (geometry && symbol) {
-                  const graphic = new Graphic({
-                    geometry: geometry,
-                    symbol: symbol
-                  });
-                  mapViewRef.current.graphics.add(graphic);
-                  
-                  // Update bounds
-                  if (geometry.extent) {
-                    bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
-                  }
-                }
-              } catch (e) {
-                console.warn('Failed to parse geometry:', e);
-              }
-            });
-            
-            // Zoom to geometry extent if we have geometries
-            if (bounds && siteGeoms.length > 0) {
-              mapViewRef.current.extent = bounds.expand(1.2);
-            }
-          } catch (err) {
-            console.error('Failed to load geometry:', err);
-          }
-        })();
+    // Retry until mapRef is available and SDK is loaded
+    let retries = 0;
+    const initMap = () => {
+      retries++;
+      if (!mapRef.current || !window.require) {
+        if (retries < 30) setTimeout(initMap, 100);
+        return;
       }
-    );
+
+      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent', 'esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
+        (Map, MapView, Extent, Graphic, Polygon, Polyline, Point) => {
+          const view = new MapView({
+            container: mapRef.current,
+            map: new Map({ basemap: 'arcgis-streets' }),
+            extent: new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } })
+          });
+          mapViewRef.current = view;
+
+          view.when(() => {
+            (async () => {
+              try {
+                const siteId = site.hub_site_id || site.id;
+                console.log('Loading geometries for siteId:', siteId);
+                const response = await axios.get('/api/table/sat_site_geometry');
+                console.log('sat_site_geometry response:', response.data);
+                const siteGeoms = response.data?.data?.filter(g => g.hub_site_id === siteId) || [];
+                console.log('Filtered geometries for site:', siteGeoms);
+                
+                view.graphics.removeAll();
+                let bounds = null;
+                
+                const getCentroid = (geomData) => {
+                  try {
+                    if (geomData.type === 'Point') {
+                      return { x: geomData.coordinates[0], y: geomData.coordinates[1] };
+                    } else if (geomData.type === 'LineString') {
+                      const mid = Math.floor(geomData.coordinates.length / 2);
+                      return { x: geomData.coordinates[mid][0], y: geomData.coordinates[mid][1] };
+                    } else if (geomData.type === 'Polygon') {
+                      const ring = geomData.coordinates[0] || [];
+                      let x = 0, y = 0;
+                      ring.forEach(coord => { x += coord[0]; y += coord[1]; });
+                      return { x: x / ring.length, y: y / ring.length };
+                    } else if (geomData.type === 'MultiPolygon') {
+                      let x = 0, y = 0, count = 0;
+                      geomData.coordinates.forEach(poly => {
+                        const ring = poly[0] || [];
+                        ring.forEach(coord => { x += coord[0]; y += coord[1]; count++; });
+                      });
+                      return count > 0 ? { x: x / count, y: y / count } : null;
+                    }
+                    return null;
+                  } catch (e) { return null; }
+                };
+
+                siteGeoms.forEach((geom, idx) => {
+                  try {
+                    let geomData = geom.shape;
+                    console.log(`Processing geometry ${idx}:`, geomData);
+                    
+                    // Parse if it's a string (JSON from backend)
+                    if (typeof geomData === 'string') {
+                      geomData = JSON.parse(geomData);
+                    }
+                    
+                    if (!geomData || !geomData.type) {
+                      console.warn(`Geometry ${idx} missing or invalid type`);
+                      return;
+                    }
+                    
+                    let geometry = null, symbol = null;
+                    const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
+                    
+                    if (geomData.type === 'MultiPolygon') {
+                      const rings = geomData.coordinates.map(poly => poly[0]); // Get outer ring of each polygon
+                      geometry = new Polygon({ rings, spatialReference: spatialRef });
+                      symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                    } else if (geomData.type === 'Polygon') {
+                      geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
+                      symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                    } else if (geomData.type === 'LineString') {
+                      geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
+                      symbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
+                    } else if (geomData.type === 'Point') {
+                      geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
+                      symbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
+                    }
+                    
+                    if (geometry && symbol) {
+                      view.graphics.add(new Graphic({ geometry, symbol }));
+                      console.log(`Added feature ${idx} to map`);
+                      if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
+                    }
+                    
+                    // Add pin marker at centroid
+                    const centroid = getCentroid(geomData);
+                    if (centroid) {
+                      const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
+                      const pinGeometry = new Point({ x: centroid.x, y: centroid.y, spatialReference: spatialRef });
+                      const pinSymbol = { 
+                        type: 'simple-marker', 
+                        style: 'circle', 
+                        color: [0, 113, 188], 
+                        size: 18, 
+                        outline: { color: [255, 255, 255], width: 3 } 
+                      };
+                      view.graphics.add(new Graphic({ geometry: pinGeometry, symbol: pinSymbol }));
+                      console.log(`Added pin ${idx} at:`, centroid);
+                    }
+                  } catch (e) { console.warn('Geometry parse error:', e); }
+                });
+                
+                console.log('Total geometries loaded:', siteGeoms.length, 'Bounds:', bounds);
+                if (bounds && siteGeoms.length > 0) {
+                  view.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
+                  console.log('Zoomed to bounds');
+                }
+              } catch (err) { console.error('Geometry load error:', err); }
+            })();
+          });
+        }
+      );
+    };
+
+    initMap();
+    return () => { if (mapViewRef.current) mapViewRef.current.destroy(); };
   }, [site]);
 
   if (!siteDetails) {
@@ -299,7 +300,7 @@ export default function SiteDetail({ site, onBack }) {
         {error && <Message negative content={error} />}
         
         <Grid columns={2} stackable>
-          <Grid.Column width={8}>
+          <Grid.Column width={6}>
             <Card.Group>
               <Card>
                 <Card.Content>
@@ -321,8 +322,8 @@ export default function SiteDetail({ site, onBack }) {
             </Card.Group>
           </Grid.Column>
           
-          <Grid.Column width={8}>
-            <div ref={mapRef} style={{ height: 300, width: '100%', borderRadius: '4px' }} />
+          <Grid.Column width={10}>
+            <div ref={mapRef} style={{ height: 600, width: 600, borderRadius: '4px', boxSizing: 'border-box' }} />
           </Grid.Column>
         </Grid>
       </Segment>

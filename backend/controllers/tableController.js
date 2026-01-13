@@ -13,6 +13,13 @@ async function getTableData(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
 
+    // Get geometry columns so we can convert them to GeoJSON
+    const geomColRes = await getPool().query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND udt_name = 'geometry'`,
+      [tableName]
+    );
+    const geomCols = geomColRes.rows.map(r => r.column_name);
+
     let where = '';
     const params = [];
     if (q) {
@@ -31,7 +38,17 @@ async function getTableData(req, res) {
     const pk = await getPrimaryKey(tableName);
     const orderBy = pk ? `ORDER BY ${pk} ASC` : '';
 
-    const dataQuery = `SELECT * FROM ${tableName} ${where} ${orderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    // Build SELECT clause, converting geometry columns to GeoJSON
+    const colRes = await getPool().query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`,
+      [tableName]
+    );
+    const allCols = colRes.rows.map(r => r.column_name);
+    const selectCols = allCols.map(col => 
+      geomCols.includes(col) ? `ST_AsGeoJSON(${col})::text AS ${col}` : col
+    ).join(', ');
+
+    const dataQuery = `SELECT ${selectCols} FROM ${tableName} ${where} ${orderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     const dataParams = [...params, limit, offset];
     const result = await getPool().query(dataQuery, dataParams);
     const data = result.rows;
