@@ -1,15 +1,14 @@
 import React from 'react';
-import { Label, Icon } from 'semantic-ui-react';
+import { Badge } from './ui/badge';
 
 function ConnectionStatus({ status }) {
   if (!status) return null;
   const isConnected = status.database === 'connected';
 
   return (
-    <Label color={isConnected ? 'green' : 'red'}>
-      <Icon name={isConnected ? 'plug' : 'unlink'} />
-      {isConnected ? `Connected to ${status.dbType}` : 'Disconnected'}
-    </Label>
+    <Badge variant={isConnected ? 'success' : 'destructive'}>
+      {isConnected ? `✓ Connected to ${status.dbType}` : '✗ Disconnected'}
+    </Badge>
   );
 }
 
