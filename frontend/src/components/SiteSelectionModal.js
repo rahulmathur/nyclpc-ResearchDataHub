@@ -4,17 +4,19 @@ import axios from 'axios';
 
 export default function SiteSelectionModal({ open, onClose, projectId, onSitesSelected }) {
   const [sites, setSites] = useState([]);
+  const [attributes, setAttributes] = useState([]);
   const [selectedSites, setSelectedSites] = useState(new Set());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Load all sites on mount
+  // Load sites with attributes on open
   useEffect(() => {
-    if (!open) return;
-    loadSites();
-  }, [open]);
+    if (!open || !projectId) return;
+    loadSitesWithAttributes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, projectId]);
 
   // Load selected sites for this project if editing
   useEffect(() => {
@@ -23,12 +25,13 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId]);
 
-  const loadSites = async () => {
+  const loadSitesWithAttributes = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get('/api/table/hub_sites');
+      const response = await axios.get(`/api/projects/${projectId}/sites-with-attributes`);
       setSites(response.data?.data || []);
+      setAttributes(response.data?.attributes || []);
     } catch (err) {
       setError('Failed to load sites');
       console.error(err);
@@ -99,24 +102,36 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
     const name = (s.site_name || s.name || '').toLowerCase();
     const id = (s.hub_site_id || s.id || '').toString();
     const term = searchTerm.toLowerCase();
-    return name.includes(term) || id.includes(term);
+    
+    // Also search in attribute values
+    let attrMatch = false;
+    for (const attr of attributes) {
+      const val = (s[attr.key] || '').toLowerCase();
+      if (val.includes(term)) {
+        attrMatch = true;
+        break;
+      }
+    }
+    
+    return name.includes(term) || id.includes(term) || attrMatch;
   });
 
   return (
-    <Modal open={open} onClose={onClose} size="large">
+    <Modal open={open} onClose={onClose} size="fullscreen">
       <Modal.Header>Select Sites for Project</Modal.Header>
       <Modal.Content scrolling>
         {error && <Message negative content={error} />}
         
         <Input
-          placeholder="Search by site name or ID..."
+          placeholder="Search by site name, ID, or attribute values..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{ marginBottom: 16, width: '100%' }}
+          icon="search"
         />
 
         <Dimmer active={loading} inverted>
-          <Loader>Loading sites...</Loader>
+          <Loader>Loading sites with attributes...</Loader>
         </Dimmer>
 
         {!loading && (
@@ -127,35 +142,57 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
                 checked={selectedSites.size === filteredSites.length && filteredSites.length > 0}
                 onChange={handleSelectAll}
               />
+              {attributes.length === 0 && (
+                <Message info size="small" style={{ marginTop: 8 }}>
+                  No site attributes selected for this project. Use "Site Attributes" to select which attributes to display.
+                </Message>
+              )}
             </div>
 
-            <Table celled compact>
-              <Table.Header>
-                <Table.Row>
-                  <Table.HeaderCell width={1}></Table.HeaderCell>
-                  <Table.HeaderCell>Site ID</Table.HeaderCell>
-                  <Table.HeaderCell>Site Name</Table.HeaderCell>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {filteredSites.map((site) => {
-                  const siteId = site.hub_site_id || site.id;
-                  const siteName = site.site_name || site.name || '';
-                  return (
-                    <Table.Row key={siteId}>
-                      <Table.Cell textAlign="center">
-                        <Checkbox
-                          checked={selectedSites.has(siteId)}
-                          onChange={() => handleToggleSite(siteId)}
-                        />
-                      </Table.Cell>
-                      <Table.Cell>{siteId}</Table.Cell>
-                      <Table.Cell>{siteName}</Table.Cell>
-                    </Table.Row>
-                  );
-                })}
-              </Table.Body>
-            </Table>
+            <div style={{ overflowX: 'auto' }}>
+              <Table celled compact striped>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.HeaderCell style={{ width: 50 }}></Table.HeaderCell>
+                    <Table.HeaderCell style={{ minWidth: 80 }}>Site ID</Table.HeaderCell>
+                    <Table.HeaderCell style={{ minWidth: 150 }}>Site Name</Table.HeaderCell>
+                    {attributes.map(attr => (
+                      <Table.HeaderCell key={attr.id} style={{ minWidth: 120 }}>
+                        {attr.name}
+                      </Table.HeaderCell>
+                    ))}
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {filteredSites.map((site) => {
+                    const siteId = site.hub_site_id || site.id;
+                    const siteName = site.site_name || site.name || '';
+                    return (
+                      <Table.Row key={siteId}>
+                        <Table.Cell textAlign="center">
+                          <Checkbox
+                            checked={selectedSites.has(siteId)}
+                            onChange={() => handleToggleSite(siteId)}
+                          />
+                        </Table.Cell>
+                        <Table.Cell>{siteId}</Table.Cell>
+                        <Table.Cell>{siteName}</Table.Cell>
+                        {attributes.map(attr => (
+                          <Table.Cell key={attr.id} style={{ 
+                            maxWidth: 250, 
+                            overflow: 'hidden', 
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }} title={site[attr.key] || ''}>
+                            {site[attr.key] || <span style={{ color: '#999' }}>-</span>}
+                          </Table.Cell>
+                        ))}
+                      </Table.Row>
+                    );
+                  })}
+                </Table.Body>
+              </Table>
+            </div>
 
             {filteredSites.length === 0 && !loading && (
               <Message info content="No sites found matching your search." />
