@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Table, Button, Loader, Form, Icon } from 'semantic-ui-react';
 import './TableView.css';
 
-function TableView({ tableName, openAddTrigger }) {
+function TableView({ tableName }) {
   const [data, setData] = useState([]);
   const [columns, setColumns] = useState([]);
   const [columnMeta, setColumnMeta] = useState([]); // metadata including enum values
@@ -15,13 +15,8 @@ function TableView({ tableName, openAddTrigger }) {
   const [editingRow, setEditingRow] = useState(null);
   const [editData, setEditData] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
-  // respond to external openAddTrigger prop to open the add form from parent
-  useEffect(() => {
-    if (typeof openAddTrigger !== 'undefined' && openAddTrigger !== null) {
-      setShowAddForm(true);
-    }
-  }, [openAddTrigger]);
   const [newRecord, setNewRecord] = useState({});
+
   // reset add form when table name changes
   useEffect(() => {
     setShowAddForm(false);
@@ -39,6 +34,7 @@ function TableView({ tableName, openAddTrigger }) {
         setColumnMeta([]);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableName, pagination.offset, pageSize, useEstimatedCount]);
 
   // debounce search

@@ -18,8 +18,6 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState(null);
   const [activeView, setActiveView] = useState('splash'); // 'splash', 'tables', 'query', 'projects', 'sites', 'site-detail'
   const [isLoading, setIsLoading] = useState(true);
-  // Table navigation helpers
-  const [addFormTrigger, setAddFormTrigger] = useState(0); // increment to trigger add form in TableView
   // Projects editing state
   const [editingProject, setEditingProject] = useState(null);
   // Sites detail state
@@ -52,11 +50,6 @@ function App() {
   };
 
   // Navigation helpers for Splash actions
-  const viewTable = (tableName, openAdd = false) => {
-    setSelectedTable(tableName);
-    setActiveView('tables');
-    if (openAdd) setAddFormTrigger((t) => t + 1);
-  };
 
   const createProject = () => { setEditingProject(null); setActiveView('create-project'); };
   const viewProjects = () => setActiveView('projects');
@@ -141,7 +134,7 @@ function App() {
             </aside>
             <main className="main-content">
               {selectedTable ? (
-                <TableView tableName={selectedTable} openAddTrigger={addFormTrigger} />
+                <TableView tableName={selectedTable} />
               ) : (
                 <div className="welcome-screen">
                   <div className="welcome-content">

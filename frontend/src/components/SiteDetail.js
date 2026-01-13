@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Segment, Header, Button, Table, Message, Loader, Divider, Card, Grid } from 'semantic-ui-react';
+import { Segment, Header, Button, Table, Message, Loader, Card, Grid } from 'semantic-ui-react';
 import axios from 'axios';
 
 export default function SiteDetail({ site, onBack }) {

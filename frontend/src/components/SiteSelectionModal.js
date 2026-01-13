@@ -20,6 +20,7 @@ export default function SiteSelectionModal({ open, onClose, projectId, onSitesSe
   useEffect(() => {
     if (!open || !projectId) return;
     loadProjectSites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId]);
 
   const loadSites = async () => {
