@@ -289,150 +289,135 @@ export default function SiteDetail({ site, onBack }) {
   }, [site]);
 
   if (!siteDetails) {
-    return <Loader active inline="centered" />;
+    return <div className="text-center py-8 text-slate-500">Loading...</div>;
   }
 
   return (
-    <div>
-      <Segment>
-        <Button icon onClick={onBack} style={{ marginBottom: '1rem' }}>
-          ← Back to Sites
-        </Button>
-        
-        <h2 className="text-2xl font-bold mt-6 mb-4">Site Details</h2>
-        {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
-        
-        <div className="grid grid-cols-3 gap-6 mb-8">
-          <div className="col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle>{siteDetails.name || 'Site'}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {Object.entries(siteDetails).map(([key, value]) => {
-                    if (key === 'id' || key === 'hub_site_id' || !value) return null;
-                    return (
-                      <div key={key}>
-                        <strong className="text-sm">{key.replace(/_/g, ' ')}:</strong> <span className="text-sm">{String(value)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="pt-6">
+          <Button variant="outline" onClick={onBack} className="mb-4">
+            ← Back to Sites
+          </Button>
           
-          <div className="col-span-2">
-            <div ref={mapRef} style={{ height: 600, width: '100%', borderRadius: '4px', boxSizing: 'border-box' }} />
+          <h2 className="text-2xl font-bold mb-4">Site Details</h2>
+          {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
+          
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{siteDetails.name || 'Site'}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {Object.entries(siteDetails).map(([key, value]) => {
+                      if (key === 'id' || key === 'hub_site_id' || !value) return null;
+                      return (
+                        <div key={key}>
+                          <strong className="text-sm">{key.replace(/_/g, ' ')}:</strong>{' '}
+                          <span className="text-sm">{String(value)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            <div className="col-span-2">
+              <div ref={mapRef} style={{ height: 600, width: '100%', borderRadius: '4px', boxSizing: 'border-box' }} />
+            </div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
       {tables.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold mb-4">Satellite Data ({tables.length} tables)</h3>
-          {loading && <div className="text-center text-slate-500">Loading...</div>}
-          
-          {tables.map(tableName => (
-            <div key={tableName} style={{ marginBottom: '2rem' }}>
-              <Header as="h4" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={() => setExpandedTable(expandedTable === tableName ? null : tableName)}>
-                <span style={{ marginRight: '0.5rem' }}>
-                  {expandedTable === tableName ? '▼' : '▶'}
-                </span>
-                {tableName.replace(/_/g, ' ').toUpperCase()}
-                <span style={{ marginLeft: '0.5rem', color: '#999', fontSize: '0.9rem' }}>
-                  ({satelliteTables[tableName]?.rows?.length || 0} records)
-                </span>
-              </Header>
-          
-          {tables.map(tableName => (
-            <div key={tableName} className="mb-8">
-              <div 
-                className="cursor-pointer flex items-center mb-3"
-                onClick={() => setExpandedTable(expandedTable === tableName ? null : tableName)}
-              >
-                <span className="mr-2">{expandedTable === tableName ? '▼' : '▶'}</span>
-                <h4 className="text-lg font-semibold">{tableName.replace(/_/g, ' ').toUpperCase()}</h4>
-                <span className="ml-2 text-sm text-slate-500">
-                  ({satelliteTables[tableName]?.rows?.length || 0} records)
-                </span>
-              </div>
-              
-              {expandedTable === tableName && satelliteTables[tableName] && (
-                <div className="overflow-x-auto border rounded-md">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {tableName === 'sat_site_attributes' ? (
-                          <>
-                            <TableHead>Attribute Name</TableHead>
-                            <TableHead>Attribute Value</TableHead>
-                          </>
-                        ) : (
-                          satelliteTables[tableName].columns.map(col => (
-                            <TableHead key={col}>{col.replace(/_/g, ' ')}</TableHead>
-                          ))
-                        )}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {satelliteTables[tableName].rows.length > 0 ? (
-                        satelliteTables[tableName].rows.map((row, idx) => {
-                          // Special rendering for sat_site_attributes
-                          if (tableName === 'sat_site_attributes') {
-                            const attrLookup = refTables['ref_attributes_full'] || {};
-                            const attrInfo = attrLookup[row.attribute_id];
-                            
-                            if (!attrInfo) {
-                              return null;
+        <Card>
+          <CardHeader>
+            <CardTitle>Satellite Data ({tables.length} tables)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading && <div className="text-center text-slate-500">Loading...</div>}
+            
+            {tables.map(tableName => (
+              <div key={tableName} className="mb-6">
+                <div 
+                  className="cursor-pointer flex items-center mb-3"
+                  onClick={() => setExpandedTable(expandedTable === tableName ? null : tableName)}
+                >
+                  <span className="mr-2">{expandedTable === tableName ? '▼' : '▶'}</span>
+                  <h4 className="text-lg font-semibold">{tableName.replace(/_/g, ' ').toUpperCase()}</h4>
+                  <span className="ml-2 text-sm text-slate-500">
+                    ({satelliteTables[tableName]?.rows?.length || 0} records)
+                  </span>
+                </div>
+                
+                {expandedTable === tableName && satelliteTables[tableName] && (
+                  <div className="overflow-x-auto border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {tableName === 'sat_site_attributes' ? (
+                            <>
+                              <TableHead>Attribute Name</TableHead>
+                              <TableHead>Attribute Value</TableHead>
+                            </>
+                          ) : (
+                            satelliteTables[tableName].columns.map(col => (
+                              <TableHead key={col}>{col.replace(/_/g, ' ')}</TableHead>
+                            ))
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {satelliteTables[tableName].rows.length > 0 ? (
+                          satelliteTables[tableName].rows.map((row, idx) => {
+                            if (tableName === 'sat_site_attributes') {
+                              const attrLookup = refTables['ref_attributes_full'] || {};
+                              const attrInfo = attrLookup[row.attribute_id];
+                              if (!attrInfo) return null;
+                              const valueColName = `attribute_value_${attrInfo.type}`;
+                              const attrValue = row[valueColName];
+                              return (
+                                <TableRow key={idx}>
+                                  <TableCell>{attrInfo.nm}</TableCell>
+                                  <TableCell>{attrValue}</TableCell>
+                                </TableRow>
+                              );
                             }
-                            
-                            // Get the value column based on attribute type
-                            const valueColName = `attribute_value_${attrInfo.type}`;
-                            const attrValue = row[valueColName];
-                            
                             return (
                               <TableRow key={idx}>
-                                <TableCell>{attrInfo.nm}</TableCell>
-                                <TableCell>{attrValue}</TableCell>
+                                {satelliteTables[tableName].columns.map(col => {
+                                  let displayValue = row[col];
+                                  if (col.endsWith('_id') && col !== 'hub_site_id' && row[col]) {
+                                    const refTableName = 'ref_' + col.substring(0, col.length - 3);
+                                    const lookup = refTables[refTableName] || {};
+                                    displayValue = lookup[row[col]] || row[col];
+                                  }
+                                  return <TableCell key={`${idx}-${col}`}>{displayValue}</TableCell>;
+                                })}
                               </TableRow>
                             );
-                          }
-                          
-                          // Standard rendering for other tables
-                          return (
-                            <TableRow key={idx}>
-                              {satelliteTables[tableName].columns.map(col => {
-                                let displayValue = row[col];
-                                
-                                // Check if this is a foreign key field
-                                if (col.endsWith('_id') && col !== 'hub_site_id' && row[col]) {
-                                  const refTableName = 'ref_' + col.substring(0, col.length - 3);
-                                  const lookup = refTables[refTableName] || {};
-                                  displayValue = lookup[row[col]] || row[col];
-                                }
-                                
-                                return (
-                                  <TableCell key={`${idx}-${col}`}>{displayValue}</TableCell>
-                                );
-                              })}
-                            </TableRow>
-                          );
-                        })
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={tableName === 'sat_site_attributes' ? 2 : satelliteTables[tableName].columns.length} className="text-center text-slate-500">
-                            No data
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                          })
+                        ) : (
+                          <TableRow>
+                            <TableCell 
+                              colSpan={tableName === 'sat_site_attributes' ? 2 : satelliteTables[tableName].columns.length} 
+                              className="text-center text-slate-500"
+                            >
+                              No data
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
       
       {tables.length === 0 && !loading && (
@@ -443,5 +428,3 @@ export default function SiteDetail({ site, onBack }) {
     </div>
   );
 }
-
-export default SiteDetail;

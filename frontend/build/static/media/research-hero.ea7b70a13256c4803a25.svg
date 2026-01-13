@@ -1,0 +1,32 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' role='img' aria-label='Research Data Hub hero'>
+  <defs>
+    <linearGradient id='g' x1='0' x2='1' y1='0' y2='1'>
+      <stop offset='0%' stop-color='#0b3d91'/>
+      <stop offset='100%' stop-color='#1a73e8'/>
+    </linearGradient>
+    <style>
+      .title { font: 700 48px/1.1 'IBM Plex Sans', Arial, sans-serif; fill: rgba(255,255,255,0.95); }
+    </style>
+  </defs>
+  <rect width='100%' height='100%' fill='url(#g)' />
+  <!-- stylized grid and central motif -->
+  <g transform='translate(120 180)' fill='rgba(255,255,255,0.12)'>
+    <rect x='0' y='0' width='1200' height='120' />
+    <g transform='translate(60,20)'>
+      <rect x='0' y='0' width='40' height='200' />
+      <rect x='80' y='0' width='40' height='200' />
+      <rect x='160' y='0' width='40' height='200' />
+      <rect x='240' y='0' width='40' height='200' />
+      <rect x='320' y='0' width='40' height='200' />
+    </g>
+  </g>
+
+  <g transform='translate(120,520)' fill='rgba(255,255,255,0.14)'>
+    <rect x='0' y='0' width='80' height='140' rx='6' />
+    <rect x='100' y='0' width='140' height='240' rx='6' />
+    <rect x='260' y='0' width='90' height='180' rx='6' />
+    <rect x='370' y='0' width='60' height='110' rx='6' />
+    <rect x='440' y='0' width='120' height='200' rx='6' />
+  </g>
+  <text x='80' y='120' class='title'>Research Data Hub</text>
+</svg>
