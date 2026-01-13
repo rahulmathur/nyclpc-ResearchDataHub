@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Table, Button, Loader, Form, Icon } from 'semantic-ui-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from './ui/table';
 import './TableView.css';
 
 function TableView({ tableName, openAddTrigger }) {
@@ -15,14 +17,15 @@ function TableView({ tableName, openAddTrigger }) {
   const [editingRow, setEditingRow] = useState(null);
   const [editData, setEditData] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
-  // respond to external openAddTrigger prop to open the add form from parent
+  
   useEffect(() => {
     if (typeof openAddTrigger !== 'undefined' && openAddTrigger !== null) {
       setShowAddForm(true);
     }
   }, [openAddTrigger]);
+  
   const [newRecord, setNewRecord] = useState({});
-  // reset add form when table name changes
+  
   useEffect(() => {
     setShowAddForm(false);
     setNewRecord({});
@@ -30,7 +33,6 @@ function TableView({ tableName, openAddTrigger }) {
 
   useEffect(() => {
     loadTableData();
-    // fetch column metadata including enum values
     (async () => {
       try {
         const colRes = await axios.get(`/api/columns/${tableName}`);
@@ -41,7 +43,6 @@ function TableView({ tableName, openAddTrigger }) {
     })();
   }, [tableName, pagination.offset, pageSize, useEstimatedCount]);
 
-  // debounce search
   useEffect(() => {
     const t = setTimeout(() => {
       setPagination(prev => ({ ...prev, offset: 0 }));
@@ -58,8 +59,6 @@ function TableView({ tableName, openAddTrigger }) {
       });
       
       const rawData = response.data.data || [];
-      // assign a stable internal id per row so we can edit rows reliably even when
-      // the actual DB PK uses custom column names (hub_project_id, etc.) or is absent
       const tableData = rawData.map((r, idx) => {
         const dbId = r.id || r._id || r.hub_project_id || r.hub_site_id;
         return { ...r, __internalId: dbId ?? `row-${pagination.offset + idx}` };
@@ -68,7 +67,6 @@ function TableView({ tableName, openAddTrigger }) {
       setPagination(prev => ({ ...prev, count: response.data.count }));
       
       if (tableData.length > 0) {
-        // hide internal id from columns
         setColumns(Object.keys(tableData[0]).filter(c => c !== '__internalId'));
       }
     } catch (error) {
@@ -80,7 +78,6 @@ function TableView({ tableName, openAddTrigger }) {
 
   const handleEdit = (row) => {
     setEditingRow(row.__internalId);
-    // keep editData free of internal id
     const { __internalId, ...rest } = row;
     setEditData({ ...rest });
   };
@@ -141,158 +138,158 @@ function TableView({ tableName, openAddTrigger }) {
 
   if (loading && data.length === 0) {
     return (
-      <div className="table-loading">
-        <Loader active inline='centered'>Loading data...</Loader>
+      <div className="table-loading flex justify-center items-center p-8">
+        <div className="text-slate-600">Loading data...</div>
       </div>
     );
   }
 
   return (
     <div className="table-view">
-      <div className="table-header">
-        <h2>{tableName}</h2>
-        <div className="table-actions">
-          <span className="record-count">{pagination.count}{' '}{pagination.count ? (pagination.count_estimated ? ' (approx)' : '') : ''} records</span>
+      <div className="table-header p-4 border-b">
+        <h2 className="text-2xl font-bold mb-4">{tableName}</h2>
+        <div className="table-actions flex flex-col gap-4">
+          <span className="record-count text-sm text-slate-600">{pagination.count}{' '}{pagination.count ? (pagination.count_estimated ? ' (approx)' : '') : ''} records</span>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
+          <div className="flex gap-3 flex-wrap items-center">
+            <Input
               placeholder="Search (across text columns)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid #ddd' }}
+              className="flex-1 min-w-48"
               aria-label="table-search"
             />
 
-            <select value={pageSize} onChange={(e) => setPageSize(parseInt(e.target.value, 10))} aria-label="page-size-select">
+            <select value={pageSize} onChange={(e) => setPageSize(parseInt(e.target.value, 10))} className="h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" aria-label="page-size-select">
               {[25,50,100,250,500,1000].map(s => <option key={s} value={s}>{s}/page</option>)}
             </select>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input type="checkbox" checked={useEstimatedCount} onChange={(e) => setUseEstimatedCount(e.target.checked)} />
-              <span style={{ fontSize: 12 }}>Use estimated count</span>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={useEstimatedCount} onChange={(e) => setUseEstimatedCount(e.target.checked)} className="h-4 w-4" />
+              <span>Use estimated count</span>
             </label>
 
-            <Button primary onClick={() => setShowAddForm(!showAddForm)}>+ Add Record</Button>
+            <Button onClick={() => setShowAddForm(!showAddForm)}>+ Add Record</Button>
           </div>
         </div>
       </div>
 
       {showAddForm && (
-        <div className="add-form">
-          <h3>Add New Record</h3>
-          <Form>
-            <Form.Group widths="equal">
-              {columns.filter(col => col !== 'id' && col !== '_id').map(column => {
-                const meta = columnMeta.find(m => m.column_name === column);
-                if (meta?.enum_values?.length) {
-                  const options = meta.enum_values.map(v => ({ key: v, text: v, value: v }));
-                  return (
-                    <Form.Select
-                      key={column}
-                      label={column}
-                      options={options}
-                      value={newRecord[column] || ''}
-                      onChange={(e, { name, value }) => setNewRecord({ ...newRecord, [column]: value })}
-                      name={column}
-                      placeholder={`Select ${column}`}
-                    />
-                  );
-                }
-
+        <div className="add-form p-4 border-b bg-slate-50">
+          <h3 className="font-semibold mb-4">Add New Record</h3>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            {columns.filter(col => col !== 'id' && col !== '_id').map(column => {
+              const meta = columnMeta.find(m => m.column_name === column);
+              if (meta?.enum_values?.length) {
                 return (
-                  <Form.Input
-                    key={column}
-                    label={column}
+                  <div key={column}>
+                    <label className="text-sm font-medium block mb-1">{column}</label>
+                    <select 
+                      value={newRecord[column] || ''}
+                      onChange={(e) => setNewRecord({ ...newRecord, [column]: e.target.value })}
+                      className="h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm w-full"
+                    >
+                      <option value="">Select {column}</option>
+                      {meta.enum_values.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={column}>
+                  <label className="text-sm font-medium block mb-1">{column}</label>
+                  <Input
                     value={newRecord[column] || ''}
-                    onChange={(e, { value }) => setNewRecord({ ...newRecord, [column]: value })}
+                    onChange={(e) => setNewRecord({ ...newRecord, [column]: e.target.value })}
                     placeholder={`Enter ${column}`}
                   />
-                );
-
-              })}
-            </Form.Group>
-            <div className="form-actions">
-              <Button primary onClick={handleAdd}>Save</Button>
-              <Button onClick={() => setShowAddForm(false)}>Cancel</Button>
-            </div>
-          </Form>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={handleAdd}>Save</Button>
+            <Button variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
+          </div>
         </div>
       )}
 
-      <div className="table-container">
-        <Table celled selectable compact className="data-table">
-          <Table.Header>
-            <Table.Row>
+      <div className="table-container overflow-auto">
+        <Table className="data-table">
+          <TableHeader>
+            <TableRow>
               {columns.map(column => (
-                <Table.HeaderCell key={column}>{column}</Table.HeaderCell>
+                <TableHead key={column}>{column}</TableHead>
               ))}
-              <Table.HeaderCell className="actions-column">Actions</Table.HeaderCell>
-            </Table.Row>
-          </Table.Header>
+              <TableHead className="actions-column">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
 
-          <Table.Body>
+          <TableBody>
             {data.map((row, rowIndex) => {
               const rowId = row.__internalId || `row-${rowIndex}`;
               const isEditing = editingRow === rowId;
 
               return (
-                <Table.Row key={rowId} className={isEditing ? 'editing' : ''}>
+                <TableRow key={rowId} className={isEditing ? 'editing' : ''}>
                   {columns.map(column => (
-                    <Table.Cell key={column}>
+                    <TableCell key={column}>
                       {isEditing && column !== 'id' && column !== '_id' ? (
                         (() => {
                           const meta = columnMeta.find(m => m.column_name === column);
                           if (meta?.enum_values?.length) {
-                            const options = meta.enum_values.map(v => ({ key: v, text: v, value: v }));
                             return (
-                              <Form.Select
-                                options={options}
+                              <select
                                 value={editData[column] ?? ''}
-                                onChange={(e, { value }) => setEditData({ ...editData, [column]: value })}
-                                className="edit-input"
-                              />
+                                onChange={(e) => setEditData({ ...editData, [column]: e.target.value })}
+                                className="h-9 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm w-full"
+                              >
+                                <option value="">Select {column}</option>
+                                {meta.enum_values.map(v => <option key={v} value={v}>{v}</option>)}
+                              </select>
                             );
                           }
 
                           return (
-                            <Form.Input
+                            <Input
                               value={editData[column] || ''}
-                              onChange={(e, { value }) => setEditData({ ...editData, [column]: value })}
-                              className="edit-input"
+                              onChange={(e) => setEditData({ ...editData, [column]: e.target.value })}
+                              className="h-9"
                             />
                           );
                         })()
                       ) : (
                         <span className="cell-content">{String(row[column])}</span>
                       )}
-                    </Table.Cell>
+                    </TableCell>
                   ))}
-                  <Table.Cell className="actions-column">
+                  <TableCell className="actions-column">
                     {isEditing ? (
-                      <div className="action-buttons">
-                        <Button icon size="small" onClick={() => handleSave(rowId)}><Icon name="check" /></Button>
-                        <Button icon size="small" onClick={() => { setEditingRow(null); setEditData({}); }}><Icon name="close" /></Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleSave(rowId)}>✓</Button>
+                        <Button size="sm" variant="outline" onClick={() => { setEditingRow(null); setEditData({}); }}>✕</Button>
                       </div>
                     ) : (
-                      <div className="action-buttons">
-                        <Button size="small" aria-label={`Edit row ${rowId}`} onClick={() => handleEdit(row)}>Edit</Button>
-                        <Button negative size="small" aria-label={`Delete row ${rowId}`} onClick={() => handleDelete(rowId)}>Delete</Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" aria-label={`Edit row ${rowId}`} onClick={() => handleEdit(row)}>Edit</Button>
+                        <Button size="sm" variant="destructive" aria-label={`Delete row ${rowId}`} onClick={() => handleDelete(rowId)}>Delete</Button>
                       </div>
                     )}
-                  </Table.Cell>
-                </Table.Row>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </Table.Body>
+          </TableBody>
         </Table>
       </div>
 
-      <div className="table-pagination">
-        <Button onClick={prevPage} disabled={pagination.offset === 0}>← Previous</Button>
-        <span className="pagination-info">
+      <div className="table-pagination flex items-center justify-between p-4 border-t">
+        <Button onClick={prevPage} disabled={pagination.offset === 0} variant="outline">← Previous</Button>
+        <span className="pagination-info text-sm text-slate-600">
           Showing {pagination.offset + 1} - {Math.min(pagination.offset + pagination.limit, pagination.count)} of {pagination.count}
         </span>
-        <Button onClick={nextPage} disabled={pagination.offset + pagination.limit >= pagination.count}>Next →</Button>
+        <Button onClick={nextPage} disabled={pagination.offset + pagination.limit >= pagination.count} variant="outline">Next →</Button>
       </div>
     </div>
   );
