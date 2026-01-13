@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Segment, Header, Form, Button, Grid, Message } from 'semantic-ui-react';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Alert, AlertDescription } from './ui/alert';
 import axios from 'axios';
 import './CreateProject.css';
 import SiteSelectionModal from './SiteSelectionModal';
@@ -277,11 +281,8 @@ export default function CreateProject({ onCreated, onCancel, project }) {
           longitude: lng,
           latitude: lat
         };
-        
-        // Remove previous marker if it exists
+
         mapViewRef.current.graphics.removeAll();
-        
-        // Add new marker
         const marker = new Graphic({
           geometry: point,
           symbol: {
@@ -291,16 +292,14 @@ export default function CreateProject({ onCreated, onCancel, project }) {
           }
         });
         mapViewRef.current.graphics.add(marker);
-        
-        // Center map on marker
         mapViewRef.current.center = point;
       });
     }
   };
 
-  const handleChange = (e, { name, value }) => {
-    setForm(prev => ({ ...prev, [name]: value }));
-    setErrors(prev => ({ ...prev, [name]: undefined }));
+  const handleChange = (field, value) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, [field]: undefined }));
   };
 
   const validate = () => {
@@ -355,136 +354,133 @@ export default function CreateProject({ onCreated, onCancel, project }) {
         setSuccess('Project created successfully');
       }
 
-      if (onCreated) onCreated();
-
-      // Reset fields only after create (if editing, keep values)
-      if (!project) setForm({ name: '', description: '', address: '', borough: '', latitude: null, longitude: null });
-      setErrors({});
+      setTimeout(() => {
+        if (onCreated) onCreated();
+      }, 1000);
     } catch (err) {
-      console.error('CreateProject submit error', err);
       setError(err.response?.data?.error || err.message || 'Failed to save project');
     } finally {
       setLoading(false);
     }
   };
 
-  // Render input for a given field name
   const renderField = (field) => {
-    const value = form[field] ?? '';
+    const value = form[field];
     const fieldError = errors[field];
-    const meta = schemaMeta[field] || {};
+    const meta = schemaMeta[field];
 
-    // If enum metadata exists, render a select
-    if (meta?.enum_values && Array.isArray(meta.enum_values) && meta.enum_values.length > 0) {
-      const options = meta.enum_values.map(v => ({ key: v, value: v, text: v }));
+    if (meta?.enum_values?.length) {
       return (
-        <Form.Select key={field} name={field} label={field.replace(/_/g, ' ')} options={options} value={value} onChange={handleChange} error={!!fieldError} />
-      );
-    }
-
-    // heuristics for field types
-    if (field === 'description' || field === 'notes' || field === 'summary') {
-      return (
-        <Form.TextArea key={field} name={field} label={field.replace(/_/g, ' ')} value={value} onChange={handleChange} error={!!fieldError} />
-      );
-    }
-
-    if (field === 'latitude' || field === 'longitude' || meta?.data_type === 'numeric' || (meta?.data_type && meta.data_type.toLowerCase().includes('int'))) {
-      return (
-        <Form.Input
-          key={field}
-          name={field}
-          label={field.replace(/_/g, ' ')}
-          type="number"
-          value={value}
-          onChange={(e, { name, value }) => setForm(prev => ({ ...prev, [name]: value !== '' ? parseFloat(value) : null }))}
-          error={!!fieldError}
-        />
+        <div key={field}>
+          <Label htmlFor={field}>{field.replace(/_/g, ' ').toUpperCase()}</Label>
+          <select 
+            id={field}
+            value={value || ''}
+            onChange={(e) => handleChange(field, e.target.value)}
+            className="h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm w-full mt-1"
+          >
+            <option value="">Select {field}</option>
+            {meta.enum_values.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </div>
       );
     }
 
     return (
-      <Form.Input key={field} name={field} label={field.replace(/_/g, ' ')} value={value} onChange={handleChange} error={!!fieldError} />
+      <div key={field}>
+        <Label htmlFor={field}>{field.replace(/_/g, ' ').toUpperCase()}</Label>
+        <Input 
+          id={field}
+          value={value || ''}
+          onChange={(e) => handleChange(field, e.target.value)}
+          placeholder={`Enter ${field}`}
+          className="mt-1"
+        />
+        {fieldError && <span className="text-red-600 text-sm mt-1">{fieldError}</span>}
+      </div>
     );
   };
 
   return (
     <div className="create-project">
-      <Segment>
-        <Header as="h2">{project ? 'Edit Project' : 'Create a Project'}</Header>
-        <p className="muted">Enter project details and pick a location on the map (click to place marker)</p>
+      <Card>
+        <CardHeader>
+          <CardTitle>{project ? 'Edit Project' : 'Create a Project'}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-slate-600 mb-4">Enter project details and pick a location on the map (click to place marker)</p>
 
-        {error && <Message negative content={error} />}
-        {success && <Message positive content={success} />}
+          {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
+          {success && <Alert className="mb-4 bg-green-50 border-green-200"><AlertDescription className="text-green-800">{success}</AlertDescription></Alert>}
 
-        <Grid columns={2} stackable>
-          <Grid.Column width={8}>
-            <Form>
-              {schemaFields ? (
-                schemaFields.filter(f => f !== 'id' && f !== 'hub_project_id').map(renderField)
-              ) : (
-                <p style={{ color: 'var(--text-dim)' }}>Loading form fields...</p>
-              )}
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <div className="space-y-4">
+                {schemaFields ? (
+                  schemaFields.filter(f => f !== 'id' && f !== 'hub_project_id').map(renderField)
+                ) : (
+                  <p className="text-slate-500">Loading form fields...</p>
+                )}
 
-              <div style={{ marginTop: 12 }}>
-                <Button primary onClick={handleSubmit} loading={loading} disabled={loading}>{project ? 'Save Changes' : 'Create Project'}</Button>
-                <Button onClick={() => { if (onCancel) onCancel(); }} disabled={loading} style={{ marginLeft: 8 }}>Cancel</Button>
-                {project && (
-                  <>
-                    <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
-                      Add Sites ({selectedSites.length})
-                    </Button>
-                    <Button color="red" onClick={async () => {
-                      if (!project?.id) return;
-                      if (!window.confirm('Are you sure you want to delete this project?')) return;
-                      setLoading(true);
-                      try {
-                        await axios.delete(`/api/projects/${project.id}`);
-                        setSuccess('Project deleted');
-                        if (onCreated) onCreated();
-                      } catch (err) {
-                        setError(err.response?.data?.error || err.message || 'Failed to delete project');
-                      } finally {
-                        setLoading(false);
-                      }
-                    }} loading={loading} disabled={loading} style={{ marginLeft: 8 }}>
-                      Delete Project
-                    </Button>
-                  </>
+                <div className="pt-4 flex gap-2">
+                  <Button onClick={handleSubmit} disabled={loading}>{project ? 'Save Changes' : 'Create Project'}</Button>
+                  <Button variant="outline" onClick={() => { if (onCancel) onCancel(); }} disabled={loading}>Cancel</Button>
+                  {project && (
+                    <>
+                      <Button variant="outline" onClick={() => setSiteModalOpen(true)} disabled={loading}>
+                        Add Sites ({selectedSites.length})
+                      </Button>
+                      <Button variant="destructive" onClick={async () => {
+                        if (!project?.id) return;
+                        if (!window.confirm('Are you sure you want to delete this project?')) return;
+                        setLoading(true);
+                        try {
+                          await axios.delete(`/api/projects/${project.id}`);
+                          setSuccess('Project deleted');
+                          if (onCreated) onCreated();
+                        } catch (err) {
+                          setError(err.response?.data?.error || err.message || 'Failed to delete project');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }} disabled={loading}>
+                        Delete Project
+                      </Button>
+                    </>
+                  )}
+                </div>
 
+                {Object.keys(errors).length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      <div className="font-medium mb-2">Validation errors</div>
+                      <ul className="list-disc pl-4">
+                        {Object.values(errors).map((m, i) => <li key={i} className="text-sm">{m}</li>)}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
                 )}
               </div>
-            </Form>
-
-            {/* Inline validation list */}
-            {Object.keys(errors).length > 0 && (
-              <Message negative>
-                <Message.Header>Validation errors</Message.Header>
-                <Message.List>
-                  {Object.values(errors).map((m, i) => <Message.Item key={i}>{m}</Message.Item>)}
-                </Message.List>
-              </Message>
-            )}
-
-          </Grid.Column>
-
-          <Grid.Column width={8}>
-            <div ref={mapRef} style={{ height: 360, width: '100%', borderRadius: '4px' }} />
-            <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
-              Click on the map to set the project's location. You can also enter latitude/longitude manually.
             </div>
-          </Grid.Column>
-        </Grid>
 
-        {project && (
-          <SiteSelectionModal 
-            open={siteModalOpen} 
-            onClose={() => setSiteModalOpen(false)} 
-            projectId={project.id} 
-            onSitesSelected={setSelectedSites}
-          />
-        )}
-      </Segment>
+            <div>
+              <div ref={mapRef} style={{ height: 360, width: '100%', borderRadius: '4px' }} />
+              <div className="mt-3 text-sm text-slate-600">
+                Click on the map to set the project's location. You can also enter latitude/longitude manually.
+              </div>
+            </div>
+          </div>
+
+          {project && (
+            <SiteSelectionModal 
+              open={siteModalOpen} 
+              onClose={() => setSiteModalOpen(false)} 
+              projectId={project.id} 
+              onSitesSelected={setSelectedSites}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
