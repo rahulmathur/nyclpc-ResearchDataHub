@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
-import { Menu, Container, Dropdown } from 'semantic-ui-react';
+import { Button } from './components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './components/ui/dropdown-menu';
 import TableView from './components/TableView';
 import QueryEditor from './components/QueryEditor';
 import ConnectionStatus from './components/ConnectionStatus';
@@ -69,42 +75,64 @@ function App() {
 
   return (
     <div className="app">
-      <Menu inverted className="app-header">
-        <Container>
-          {/* BrandHeader component is used for logo */}
-          <BrandHeader />
+      <header className="app-header bg-slate-900 text-white border-b">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-8">
+            {/* BrandHeader component is used for logo */}
+            <BrandHeader />
 
-          <Menu.Menu position="left">
-            <Menu.Item name="home" active={activeView === 'splash'} onClick={() => setActiveView('splash')}>
-              <span className="nav-icon">🏠</span> Home
-            </Menu.Item>
-            <Menu.Item name="projects" active={activeView === 'projects'} onClick={() => viewProjects()}>
-              <span className="nav-icon">📁</span> Projects
-            </Menu.Item>
-            <Menu.Item name="sites" active={activeView === 'sites' || activeView === 'site-detail'} onClick={() => viewSites()}>
-              <span className="nav-icon">📍</span> Sites
-            </Menu.Item>
-            <Dropdown item text="Utilities">
-              <Dropdown.Menu>
-                <Dropdown.Item active={activeView === 'tables'} onClick={() => setActiveView('tables')}>
-                  <span className="nav-icon">📊</span> Tables
-                </Dropdown.Item>
-                <Dropdown.Item active={activeView === 'query'} onClick={() => setActiveView('query')}>
-                  <span className="nav-icon">⚡</span> Query
-                </Dropdown.Item>
-              </Dropdown.Menu>
-            </Dropdown>
+            <nav className="flex items-center gap-4">
+              <Button
+                variant={activeView === 'splash' ? 'default' : 'ghost'}
+                onClick={() => setActiveView('splash')}
+                className="text-white hover:bg-slate-800"
+              >
+                <span className="mr-2">🏠</span> Home
+              </Button>
+              <Button
+                variant={activeView === 'projects' ? 'default' : 'ghost'}
+                onClick={() => viewProjects()}
+                className="text-white hover:bg-slate-800"
+              >
+                <span className="mr-2">📁</span> Projects
+              </Button>
+              <Button
+                variant={activeView === 'sites' || activeView === 'site-detail' ? 'default' : 'ghost'}
+                onClick={() => viewSites()}
+                className="text-white hover:bg-slate-800"
+              >
+                <span className="mr-2">📍</span> Sites
+              </Button>
 
-          </Menu.Menu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="text-white hover:bg-slate-800">
+                    Utilities
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onClick={() => setActiveView('tables')}
+                    className={activeView === 'tables' ? 'bg-slate-100' : ''}
+                  >
+                    <span className="mr-2">📊</span> Tables
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setActiveView('query')}
+                    className={activeView === 'query' ? 'bg-slate-100' : ''}
+                  >
+                    <span className="mr-2">⚡</span> Query
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </nav>
+          </div>
 
-          <Menu.Menu position="right">
-
-            <Menu.Item>
-              <ConnectionStatus status={connectionStatus} />
-            </Menu.Item>
-          </Menu.Menu>
-        </Container>
-      </Menu> 
+          <div className="flex items-center gap-4">
+            <ConnectionStatus status={connectionStatus} />
+          </div>
+        </div>
+      </header> 
 
       <div className="app-body">
         {activeView === 'splash' ? (
@@ -165,10 +193,10 @@ function App() {
         ) : null}
       </div>
 
-      <footer className="site-footer">
-        <Container>
-          <div>© City of New York. Landmarks Preservation Commission · <a href="https://www.nyc.gov/site/lpc/index.page" target="_blank" rel="noopener noreferrer">nyc.gov/site/lpc</a></div>
-        </Container>
+      <footer className="site-footer bg-slate-100 border-t">
+        <div className="max-w-7xl mx-auto px-4 py-4 text-sm text-slate-700">
+          © City of New York. Landmarks Preservation Commission · <a href="https://www.nyc.gov/site/lpc/index.page" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">nyc.gov/site/lpc</a>
+        </div>
       </footer>
     </div>
   );
