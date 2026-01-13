@@ -181,9 +181,10 @@ async function getSitesWithAttributes(req, res) {
   const { projectId } = req.params;
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
     
     // Get project's selected attributes
-    const attrsResult = await getPool().query(`
+    const attrsResult = await pool.query(`
       SELECT ra.attribute_id, ra.attribute_nm, ra.attribute_text, ra.attribute_type
       FROM sat_project_site_attributes psa
       JOIN ref_attributes ra ON psa.attribute_id = ra.attribute_id
@@ -192,23 +193,31 @@ async function getSitesWithAttributes(req, res) {
     `, [projectId]);
     const attributes = attrsResult.rows;
     
-    // Get all sites (hub_sites only has hub_site_id and create_dt)
-    const sitesResult = await getPool().query(`
+    // Get all sites
+    const sitesResult = await pool.query(`
       SELECT hub_site_id FROM hub_sites ORDER BY hub_site_id
     `);
-    const sites = sitesResult.rows.map(s => ({ hub_site_id: s.hub_site_id, id: s.hub_site_id }));
     
-    // For each site, get attribute values
-    for (const site of sites) {
-      for (const attr of attributes) {
-        const values = await getAttributeValues(site.hub_site_id, attr);
-        site[`attr_${attr.attribute_id}`] = values;
+    // Build sites map for quick lookup
+    const sitesMap = new Map();
+    for (const s of sitesResult.rows) {
+      sitesMap.set(s.hub_site_id, { hub_site_id: s.hub_site_id, id: s.hub_site_id });
+    }
+    
+    // Batch fetch all attribute data and assign to sites
+    for (const attr of attributes) {
+      const attrKey = `attr_${attr.attribute_id}`;
+      const attrData = await getBatchAttributeValues(pool, attr);
+      
+      // Assign values to sites
+      for (const [siteId, site] of sitesMap) {
+        site[attrKey] = attrData.get(siteId) || '';
       }
     }
     
     res.json({ 
       success: true, 
-      data: sites,
+      data: Array.from(sitesMap.values()),
       attributes: attributes.map(a => ({
         id: a.attribute_id,
         name: a.attribute_nm,
@@ -216,108 +225,117 @@ async function getSitesWithAttributes(req, res) {
       }))
     });
   } catch (error) {
+    console.error('getSitesWithAttributes error:', error);
     res.status(500).json({ error: error.message });
   }
 }
 
-// Helper to get attribute values for a site
-async function getAttributeValues(siteId, attr) {
-  const pool = getPool();
+// Batch fetch all values for an attribute across all sites
+async function getBatchAttributeValues(pool, attr) {
   const attrText = attr.attribute_text;
   const attrType = attr.attribute_type;
+  const result = new Map(); // siteId -> pipe-separated values
   
   try {
-    let values = [];
+    let rows = [];
     
-    // Handle different attribute types
     if (attrType === 'int' || attrType === 'txt' || attrType === 'num' || attrType === 'ts') {
-      // Generic attributes stored in sat_site_attributes
-      const result = await pool.query(`
-        SELECT attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts
+      // Generic attributes from sat_site_attributes
+      const query = await pool.query(`
+        SELECT hub_site_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts
         FROM sat_site_attributes
-        WHERE hub_site_id = $1 AND attribute_id = $2
-        ORDER BY start_dt
-      `, [siteId, attr.attribute_id]);
+        WHERE attribute_id = $1
+        ORDER BY hub_site_id, start_dt
+      `, [attr.attribute_id]);
       
-      for (const row of result.rows) {
-        if (attrType === 'int' && row.attribute_value_int != null) {
-          values.push(String(row.attribute_value_int));
-        } else if (attrType === 'txt' && row.attribute_value_text != null) {
-          values.push(row.attribute_value_text);
-        } else if (attrType === 'num' && row.attribute_value_number != null) {
-          values.push(String(row.attribute_value_number));
-        } else if (attrType === 'ts' && row.attribute_value_ts != null) {
-          values.push(new Date(row.attribute_value_ts).toLocaleDateString());
+      const grouped = new Map();
+      for (const row of query.rows) {
+        let val = null;
+        if (attrType === 'int' && row.attribute_value_int != null) val = String(row.attribute_value_int);
+        else if (attrType === 'txt' && row.attribute_value_text != null) val = row.attribute_value_text;
+        else if (attrType === 'num' && row.attribute_value_number != null) val = String(row.attribute_value_number);
+        else if (attrType === 'ts' && row.attribute_value_ts != null) val = new Date(row.attribute_value_ts).toLocaleDateString();
+        
+        if (val) {
+          if (!grouped.has(row.hub_site_id)) grouped.set(row.hub_site_id, []);
+          grouped.get(row.hub_site_id).push(val);
         }
       }
+      for (const [siteId, vals] of grouped) {
+        result.set(siteId, vals.join(' | '));
+      }
+      
     } else if (attrType === 'tbl') {
-      // Table-based attributes (bbl, built, alteration)
       if (attrText === 'bbl') {
-        const result = await pool.query(`
-          SELECT bbl FROM sat_site_bbl WHERE hub_site_id = $1 ORDER BY start_dt
-        `, [siteId]);
-        values = result.rows.map(r => r.bbl).filter(Boolean);
+        const query = await pool.query(`SELECT hub_site_id, bbl FROM sat_site_bbl ORDER BY hub_site_id, start_dt`);
+        groupAndSet(query.rows, result, 'bbl');
       } else if (attrText === 'built') {
-        const result = await pool.query(`
-          SELECT date_combo FROM sat_site_built WHERE hub_site_id = $1 ORDER BY start_dt
-        `, [siteId]);
-        values = result.rows.map(r => r.date_combo).filter(Boolean);
+        const query = await pool.query(`SELECT hub_site_id, date_combo FROM sat_site_built ORDER BY hub_site_id, start_dt`);
+        groupAndSet(query.rows, result, 'date_combo');
       } else if (attrText === 'alteration') {
-        const result = await pool.query(`
-          SELECT a.alteration_nm
+        const query = await pool.query(`
+          SELECT sa.hub_site_id, a.alteration_nm
           FROM sat_site_alteration sa
           JOIN ref_alteration a ON sa.alteration_id = a.alteration_id
-          WHERE sa.hub_site_id = $1
-          ORDER BY sa.sort_order
-        `, [siteId]);
-        values = result.rows.map(r => r.alteration_nm).filter(Boolean);
+          ORDER BY sa.hub_site_id, sa.sort_order
+        `);
+        groupAndSet(query.rows, result, 'alteration_nm');
       }
+      
     } else if (attrType === 'refs' || attrType === 'ref') {
-      // Reference table attributes (material, style, type, use)
       if (attrText === 'material') {
-        const result = await pool.query(`
-          SELECT m.material_nm
+        const query = await pool.query(`
+          SELECT sm.hub_site_id, m.material_nm
           FROM sat_site_material sm
           JOIN ref_material m ON sm.material_id = m.material_id
-          WHERE sm.hub_site_id = $1
-          ORDER BY sm.sort_order
-        `, [siteId]);
-        values = result.rows.map(r => r.material_nm).filter(Boolean);
+          ORDER BY sm.hub_site_id, sm.sort_order
+        `);
+        groupAndSet(query.rows, result, 'material_nm');
       } else if (attrText === 'style') {
-        const result = await pool.query(`
-          SELECT s.style_nm
+        const query = await pool.query(`
+          SELECT ss.hub_site_id, s.style_nm
           FROM sat_site_style ss
           JOIN ref_style s ON ss.style_id = s.style_id
-          WHERE ss.hub_site_id = $1
-          ORDER BY ss.sort_order
-        `, [siteId]);
-        values = result.rows.map(r => r.style_nm).filter(Boolean);
+          ORDER BY ss.hub_site_id, ss.sort_order
+        `);
+        groupAndSet(query.rows, result, 'style_nm');
       } else if (attrText === 'type') {
-        const result = await pool.query(`
-          SELECT t.type_nm
+        const query = await pool.query(`
+          SELECT st.hub_site_id, t.type_nm
           FROM sat_site_type st
           JOIN ref_type t ON st.type_id = t.type_id
-          WHERE st.hub_site_id = $1
-          ORDER BY st.sort_order
-        `, [siteId]);
-        values = result.rows.map(r => r.type_nm).filter(Boolean);
+          ORDER BY st.hub_site_id, st.sort_order
+        `);
+        groupAndSet(query.rows, result, 'type_nm');
       } else if (attrText === 'use') {
-        const result = await pool.query(`
-          SELECT u.use_nm
+        const query = await pool.query(`
+          SELECT su.hub_site_id, u.use_nm
           FROM sat_site_use su
           JOIN ref_use u ON su.use_id = u.use_id
-          WHERE su.hub_site_id = $1
-          ORDER BY su.sort_order
-        `, [siteId]);
-        values = result.rows.map(r => r.use_nm).filter(Boolean);
+          ORDER BY su.hub_site_id, su.sort_order
+        `);
+        groupAndSet(query.rows, result, 'use_nm');
       }
     }
-    
-    // Return pipe-separated values or empty string
-    return values.length > 0 ? values.join(' | ') : '';
   } catch (err) {
-    console.error(`Error getting attribute ${attr.attribute_nm} for site ${siteId}:`, err.message);
-    return '';
+    console.error(`Error batch fetching attribute ${attr.attribute_nm}:`, err.message);
+  }
+  
+  return result;
+}
+
+// Helper to group rows by site and set pipe-separated values
+function groupAndSet(rows, resultMap, valueKey) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const val = row[valueKey];
+    if (val) {
+      if (!grouped.has(row.hub_site_id)) grouped.set(row.hub_site_id, []);
+      grouped.get(row.hub_site_id).push(val);
+    }
+  }
+  for (const [siteId, vals] of grouped) {
+    resultMap.set(siteId, vals.join(' | '));
   }
 }
 
