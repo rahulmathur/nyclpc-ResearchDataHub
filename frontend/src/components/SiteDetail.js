@@ -443,3 +443,5 @@ export default function SiteDetail({ site, onBack }) {
     </div>
   );
 }
+
+export default SiteDetail;
