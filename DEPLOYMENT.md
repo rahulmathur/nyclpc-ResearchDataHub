@@ -1,51 +1,100 @@
 # Deployment Guide
 
 ## Target Architecture
-- **Backend (staging):** Railway service running the Express API, connected to PostgreSQL (Railway managed or external). Uses self-signed SSL on Railway hosts; AWS RDS CA bundle is supported when provided.
-- **Frontend (staging):** Cloudflare Pages serving the React build, calling the Railway backend via `REACT_APP_API_URL`.
+- **Backend (staging):** AWS Elastic Beanstalk running the Express API, connected to AWS RDS PostgreSQL (with PostGIS support).
+- **Frontend (staging):** Cloudflare Pages serving the React build, calling the Elastic Beanstalk backend via `REACT_APP_API_URL`.
 - **Development:** unchanged; use `.env.development` locally and `npm run dev` / `npm run dev:staging` for local testing.
 
 ## Prerequisites
 - Node.js 18+, npm
 - PostgreSQL client tools (`psql`, `pg_dump`)
-- Accounts: Railway, Cloudflare
+- AWS account with Elastic Beanstalk and RDS access
+- Cloudflare account
 
 ## Environment Configuration
 Create env files (copy from `.env.example`):
-- `backend/.env.development` — dev DB
-- `backend/.env.staging` — staging DB (Railway PG or AWS RDS)
-- Optionally `frontend/.env.staging` — sets `REACT_APP_API_URL` to the Railway backend URL.
+- `backend/.env.development` — dev RDS
+- `backend/.env.staging` — staging RDS
 
 Required backend keys:
 ```
 DB_TYPE=postgresql
-DB_HOST=<hostname>
+DB_HOST=<your-rds-endpoint>
 DB_PORT=5432
 DB_NAME=<database>
 DB_USER=<username>
 DB_PASSWORD=<password>
 PORT=5000
 ```
-If using AWS RDS, place the CA bundle at `backend/ca_certificate_aws-rds.pem` to enable SSL verification. Railway hosts use self-signed SSL automatically.
 
-## Backend on Railway (staging)
-1) In Railway, create a new service from the `backend` directory of this repo.
-2) Set build/start:
+Frontend environment:
+- `frontend/.env.staging` — sets `REACT_APP_API_URL=https://<your-beanstalk-domain>`
+
+Note: Place the AWS RDS CA bundle at `backend/ca_certificate_aws-rds.pem` if you want SSL certificate verification. The backend will auto-detect and use it when present.
+
+## Backend on AWS Elastic Beanstalk (staging)
+
+### 1. Create Elastic Beanstalk Application
+```bash
+# Install AWS CLI and EB CLI
+pip install awsebcli
+
+# Navigate to repo root
+cd /path/to/nyclpc-ResearchDataHub
+
+# Initialize Elastic Beanstalk
+eb init -p "Node.js 18" nyclpc-research-hub-backend --region us-east-1
 ```
-Build: npm install
-Start: npm start
-Root directory: backend
+
+### 2. Create Environment
+```bash
+eb create staging-backend \
+  --instance-type t3.micro \
+  --single \
+  --envvars "DB_TYPE=postgresql,DB_HOST=<rds-endpoint>,DB_PORT=5432,DB_NAME=LPC-ResearchHub-Staging,DB_USER=nyclpc,DB_PASSWORD=<password>,PORT=5000"
 ```
-3) Set environment variables from your staging DB (Railway PG or external RDS): `DB_TYPE, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, PORT=5000`.
-4) If using external RDS with SSL, add the CA file as a Railway variable/mounted file and set `PGSSLROOTCERT` or keep it at the repo path `ca_certificate_aws-rds.pem`.
-5) Deploy and verify `/api/health` on the Railway public domain.
+
+Replace `<rds-endpoint>` and `<password>` with your actual RDS values.
+
+### 3. Verify Connection
+```bash
+# Get the environment URL
+eb open
+
+# Or manually test health endpoint
+curl https://<your-beanstalk-url>.elasticbeanstalk.com/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "dbType": "postgresql"
+}
+```
+
+### 4. Configure RDS Security Group
+AWS Console → RDS → your database → **Security**:
+- Edit inbound rules
+- Add: Type `PostgreSQL`, Port `5432`, Source = Elastic Beanstalk security group
+- Or allow `0.0.0.0/0` for simplicity during testing
+
+### 5. Redeploy on Code Changes
+```bash
+git push origin staging  # Push changes
+eb deploy                 # Auto-deploys the staging environment
+```
+
+### Note on SSL
+The backend automatically detects RDS hosts and uses the CA certificate if present at `backend/ca_certificate_aws-rds.pem`. For local development or to disable verification temporarily, comment out the SSL section in `server.js` line 31-37.
 
 ## Frontend on Cloudflare Pages (staging)
 1) New Pages project from the repo, root `frontend`.
 2) Build command: `npm install && npm run build`
 3) Build output directory: `build`
-4) Environment variable: `REACT_APP_API_URL=https://<your-railway-backend-domain>`
-5) Deploy and smoke test that the UI hits the backend (network tab should call the Railway host).
+4) Set environment variable: `REACT_APP_API_URL=https://<your-beanstalk-url>.elasticbeanstalk.com`
+5) Deploy and test that the UI calls the Beanstalk backend (check network tab in browser dev tools).
 
 ## Data Migration (Dev → Staging)
 Uses `.env.development` as source and `.env.staging` as target (works for Railway PG or RDS):
@@ -67,6 +116,6 @@ npm start            # http://localhost:3000, proxies to http://localhost:5000
 ```
 
 ## Troubleshooting
-- **DB connection errors:** verify env vars; for Railway hosts, SSL is self-signed (handled automatically). For RDS, ensure `ca_certificate_aws-rds.pem` is present and ingress rules allow the Railway IPs.
-- **Frontend cannot reach backend:** confirm `REACT_APP_API_URL` on Cloudflare Pages points to the Railway backend and CORS allows the Pages domain.
-- **Migrations:** ensure staging user can drop/recreate objects and both `.env.development` / `.env.staging` are valid.
+- **DB connection errors:** verify env vars in Elastic Beanstalk console. Check RDS security group allows Beanstalk instance. For RDS, ensure `ca_certificate_aws-rds.pem` is present if SSL verification is enabled.
+- **Frontend cannot reach backend:** confirm `REACT_APP_API_URL` on Cloudflare Pages points to the correct Beanstalk domain and check CORS (should be allowed by default).
+- **Migrations:** ensure staging RDS user can drop/recreate objects and both `.env.development` / `.env.staging` are valid.
