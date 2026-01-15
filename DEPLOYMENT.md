@@ -1,165 +1,72 @@
 # Deployment Guide
 
-## Railway Deployment (Staging Environment)
+## Target Architecture
+- **Backend (staging):** Railway service running the Express API, connected to PostgreSQL (Railway managed or external). Uses self-signed SSL on Railway hosts; AWS RDS CA bundle is supported when provided.
+- **Frontend (staging):** Cloudflare Pages serving the React build, calling the Railway backend via `REACT_APP_API_URL`.
+- **Development:** unchanged; use `.env.development` locally and `npm run dev` / `npm run dev:staging` for local testing.
 
-### Prerequisites
-- Railway account (free tier available)
-- GitHub repository connected to Railway
+## Prerequisites
+- Node.js 18+, npm
+- PostgreSQL client tools (`psql`, `pg_dump`)
+- Accounts: Railway, Cloudflare
 
-### Setup Steps
+## Environment Configuration
+Create env files (copy from `.env.example`):
+- `backend/.env.development` — dev DB
+- `backend/.env.staging` — staging DB (Railway PG or AWS RDS)
+- Optionally `frontend/.env.staging` — sets `REACT_APP_API_URL` to the Railway backend URL.
 
-#### 1. Create Railway Project
-1. Go to [railway.app](https://railway.app) and sign up/login
-2. Click "New Project"
-3. Select "Deploy from GitHub repo"
-4. Choose this repository
-
-#### 2. Add PostgreSQL Database
-1. In your Railway project, click "+ New"
-2. Select "Database" → "PostgreSQL"
-3. Railway will provision a new PostgreSQL instance
-4. Note: Database credentials are auto-configured
-
-#### 3. Configure Backend Service
-1. Click "+ New" → "GitHub Repo"
-2. Select this repository
-3. Configure service settings:
-   - **Root Directory**: `backend`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-
-4. Set environment variables:
-   ```
-   DB_TYPE=postgresql
-   DB_HOST=${{Postgres.PGHOST}}
-   DB_PORT=${{Postgres.PGPORT}}
-   DB_NAME=${{Postgres.PGDATABASE}}
-   DB_USER=${{Postgres.PGUSER}}
-   DB_PASSWORD=${{Postgres.PGPASSWORD}}
-   PORT=5000
-   ```
-   (Railway auto-fills `${{Postgres.*}}` references)
-
-#### 4. Seed the Database
-After first deployment, run seed script:
-1. In Railway, open your backend service
-2. Go to "Settings" → "Deploy"
-3. Add a one-time run command or use the CLI:
-   ```bash
-   railway run npm run seed
-   ```
-
-Or manually trigger from your local machine:
-```bash
-# Install Railway CLI
-npm i -g @railway/cli
-
-# Login and link project
-railway login
-railway link
-
-# Run seed
-railway run npm run seed
+Required backend keys:
 ```
+DB_TYPE=postgresql
+DB_HOST=<hostname>
+DB_PORT=5432
+DB_NAME=<database>
+DB_USER=<username>
+DB_PASSWORD=<password>
+PORT=5000
+```
+If using AWS RDS, place the CA bundle at `backend/ca_certificate_aws-rds.pem` to enable SSL verification. Railway hosts use self-signed SSL automatically.
 
-#### 5. Configure Frontend Service
-1. Click "+ New" → "GitHub Repo" (same repo)
-2. Configure service settings:
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npx serve -s build -l $PORT`
+## Backend on Railway (staging)
+1) In Railway, create a new service from the `backend` directory of this repo.
+2) Set build/start:
+```
+Build: npm install
+Start: npm start
+Root directory: backend
+```
+3) Set environment variables from your staging DB (Railway PG or external RDS): `DB_TYPE, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, PORT=5000`.
+4) If using external RDS with SSL, add the CA file as a Railway variable/mounted file and set `PGSSLROOTCERT` or keep it at the repo path `ca_certificate_aws-rds.pem`.
+5) Deploy and verify `/api/health` on the Railway public domain.
 
-3. Set environment variables:
-   ```
-   REACT_APP_API_URL=${{backend.RAILWAY_PUBLIC_DOMAIN}}
-   ```
+## Frontend on Cloudflare Pages (staging)
+1) New Pages project from the repo, root `frontend`.
+2) Build command: `npm install && npm run build`
+3) Build output directory: `build`
+4) Environment variable: `REACT_APP_API_URL=https://<your-railway-backend-domain>`
+5) Deploy and smoke test that the UI hits the backend (network tab should call the Railway host).
 
-4. Update frontend proxy (if needed):
-   - Edit `frontend/package.json`
-   - Update proxy to point to Railway backend URL
-
-#### 6. Deploy
-- Railway auto-deploys on push to `main` branch (or configure specific branch)
-- Each push triggers rebuild and deployment
-- Database persists between deployments
-
-### Branch Strategy (Development vs Staging)
-
-#### Option A: Branch-based environments
-- `main` branch → Development (local database)
-- `staging` branch → Railway (Railway database)
-
-Configure Railway to deploy from `staging` branch:
-1. Railway project settings → "Deploy" → "Branch"
-2. Select `staging`
-
-#### Option B: Separate Railway projects
-- Create two Railway projects:
-  - "DataFlow Dev" (deploys from `main`)
-  - "DataFlow Staging" (deploys from `staging`)
-
-### Database Sync Workflow
-
-To sync development data to staging:
-```bash
-# From your local machine
+## Data Migration (Dev → Staging)
+Uses `.env.development` as source and `.env.staging` as target (works for Railway PG or RDS):
+```
 cd backend
-npm run seed  # Updates staging database with fresh seed data
+npm run migrate:staging
 ```
+This exports dev to a custom-format dump and restores into staging (drops/recreates objects).
 
-Or manually sync:
-```bash
-# Export from development database
-pg_dump -h localhost -U dev-user -d dev-db > backup.sql
-
-# Import to Railway (get Railway DB URL from dashboard)
-psql $RAILWAY_DATABASE_URL < backup.sql
+## Local Development
 ```
+cd backend && npm install
+npm run dev          # uses .env.development
+npm run dev:staging  # uses .env.staging
+npm run smoke        # health + projects/sites
 
-### Monitoring
-- **Logs**: Railway dashboard → Service → "View Logs"
-- **Database**: Railway dashboard → Postgres → "View Database"
-- **Health check**: Railway generates public URL - visit `/api/health`
-
-### Costs (as of 2026)
-- **Free tier**: $5/month in credits
-- Typical usage for this app: ~$3-5/month (small backend + small DB)
-- Scale up as needed (paid plans available)
-
----
-
-## Alternative: Keep Existing Database
-
-If you want Railway to connect to your **current PostgreSQL** (not create new one):
-
-1. Skip step 2 (don't add Railway PostgreSQL)
-2. In backend service, manually set environment variables:
-   ```
-   DB_TYPE=postgresql
-   DB_HOST=your-current-host
-   DB_PORT=5432
-   DB_NAME=your-current-db
-   DB_USER=your-current-user
-   DB_PASSWORD=your-current-password
-   ```
-3. Ensure your database allows connections from Railway IPs
-4. No need to run seed script (uses existing data)
-
----
+cd ../frontend && npm install
+npm start            # http://localhost:3000, proxies to http://localhost:5000
+```
 
 ## Troubleshooting
-
-### Backend won't connect to database
-- Check environment variables in Railway dashboard
-- Verify Railway PostgreSQL service is running
-- Check logs for connection errors
-
-### Frontend can't reach backend
-- Verify REACT_APP_API_URL is set correctly
-- Check CORS settings in `backend/server.js`
-- Ensure backend has a public domain (Railway auto-assigns)
-
-### Seed script fails
-- Verify database credentials
-- Check if tables already exist (seed clears data - comment out TRUNCATE if needed)
-- Run `railway logs` to see error details
+- **DB connection errors:** verify env vars; for Railway hosts, SSL is self-signed (handled automatically). For RDS, ensure `ca_certificate_aws-rds.pem` is present and ingress rules allow the Railway IPs.
+- **Frontend cannot reach backend:** confirm `REACT_APP_API_URL` on Cloudflare Pages points to the Railway backend and CORS allows the Pages domain.
+- **Migrations:** ensure staging user can drop/recreate objects and both `.env.development` / `.env.staging` are valid.

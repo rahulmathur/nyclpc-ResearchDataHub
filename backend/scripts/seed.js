@@ -6,7 +6,7 @@
  *   npm run seed
  * 
  * Environment:
- *   Set DB_* variables in .env or pass via Railway environment
+ *   Set DB_* variables in .env or inject via your hosting environment
  */
 
 require('dotenv').config();
@@ -25,7 +25,7 @@ async function seed() {
     password: process.env.DB_PASSWORD,
   };
 
-  // Optional SSL for Railway/AWS
+  // Optional SSL for AWS
   if (fs.existsSync('./ca_certificate_aws-rds.pem')) {
     poolConfig.ssl = { 
       rejectUnauthorized: true, 

@@ -16,6 +16,7 @@ let db;
 const initializeDatabase = async () => {
   try {
     console.log('Connecting to PostgreSQL...');
+    console.log('DB_HOST:', process.env.DB_HOST);
     const { Pool } = require('pg');
 
     const poolConfig = {
@@ -26,8 +27,12 @@ const initializeDatabase = async () => {
       password: process.env.DB_PASSWORD,
     };
 
-    // Optional SSL bundle if available
-    if (fs.existsSync('./ca_certificate_aws-rds.pem')) {
+    // SSL configuration: Railway uses self-signed certs; AWS RDS can use CA bundle when present
+    if (process.env.DB_HOST && (process.env.DB_HOST.includes('railway') || process.env.DB_HOST.includes('rlwy'))) {
+      console.log('Using Railway SSL (self-signed)');
+      poolConfig.ssl = { rejectUnauthorized: false };
+    } else if (fs.existsSync('./ca_certificate_aws-rds.pem')) {
+      console.log('Using AWS RDS SSL certificate');
       poolConfig.ssl = { rejectUnauthorized: true, ca: fs.readFileSync('./ca_certificate_aws-rds.pem').toString() };
     }
 
@@ -82,10 +87,12 @@ app.post('/api/projects', projectsController.createProject);
 app.put('/api/projects/:projectId', projectsController.updateProject);
 app.delete('/api/projects/:projectId', projectsController.deleteProject);
 app.get('/api/projects/:projectId/sites', projectsController.getProjectSites);
+app.put('/api/projects/:projectId/sites', projectsController.updateProjectSites);
 app.get('/api/projects/:projectId/site-attributes', projectsController.getProjectSiteAttributes);
 app.put('/api/projects/:projectId/site-attributes', projectsController.updateProjectSiteAttributes);
 app.get('/api/projects/:projectId/sites-with-attributes', projectsController.getSitesWithAttributes);
 app.get('/api/site-attributes', projectsController.getSiteAttributes);
+app.get('/api/sites', projectsController.getAllSites);
 
 // Table/columns/projects routes are now implemented in separate controllers (see ./controllers/*)
 
