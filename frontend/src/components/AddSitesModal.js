@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, Button, Input, Table, Message, Dimmer, Loader, Checkbox } from 'semantic-ui-react';
 import axios from 'axios';
 
-export default function AddSitesModal({ open, onClose, projectId, onSitesUpdated }) {
+export default function AddSitesModal({ open, onClose, projectId, onSitesUpdated, onViewSiteDetail }) {
   const [allSites, setAllSites] = useState([]);
   const [selectedSiteIds, setSelectedSiteIds] = useState(new Set());
   const [loading, setLoading] = useState(false);
@@ -150,12 +150,49 @@ export default function AddSitesModal({ open, onClose, projectId, onSitesUpdated
                 {filteredSites.map((site) => {
                   const siteId = site.hub_site_id || site.id;
                   const isSelected = selectedSiteIds.has(siteId);
+                  const handleSiteIdClick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onViewSiteDetail) {
+                      onViewSiteDetail(site);
+                    }
+                  };
                   return (
                     <Table.Row key={siteId} onClick={() => toggleSite(siteId)} style={{ cursor: 'pointer' }}>
                       <Table.Cell onClick={(e) => e.stopPropagation()}>
                         <Checkbox checked={isSelected} onChange={() => toggleSite(siteId)} />
                       </Table.Cell>
-                      <Table.Cell>{siteId}</Table.Cell>
+                      <Table.Cell>
+                        {onViewSiteDetail ? (
+                          <button
+                            type="button"
+                            onClick={handleSiteIdClick}
+                            className="site-id-link"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              fontWeight: '500',
+                              color: '#00ccff',
+                              transition: 'color 0.2s ease',
+                              font: 'inherit'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color = '#00ff88';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color = '#00ccff';
+                            }}
+                            aria-label={`View details for site ${siteId}`}
+                          >
+                            {siteId}
+                          </button>
+                        ) : (
+                          siteId
+                        )}
+                      </Table.Cell>
                     </Table.Row>
                   );
                 })}

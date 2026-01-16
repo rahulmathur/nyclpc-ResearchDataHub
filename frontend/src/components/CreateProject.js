@@ -6,7 +6,7 @@ import SiteSelectionModal from './SiteSelectionModal';
 import AddSitesModal from './AddSitesModal';
 import AttributeSelectionModal from './AttributeSelectionModal';
 
-export default function CreateProject({ onCreated, onCancel, project }) {
+export default function CreateProject({ onCreated, onCancel, project, onViewSiteDetail }) {
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -515,6 +515,7 @@ export default function CreateProject({ onCreated, onCancel, project }) {
             onClose={() => setAddSitesModalOpen(false)}
             projectId={project.id}
             onSitesUpdated={setSelectedSites}
+            onViewSiteDetail={onViewSiteDetail ? (site) => onViewSiteDetail(site, 'create-project') : undefined}
           />
         )}
 

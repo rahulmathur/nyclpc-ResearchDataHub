@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Icon } from 'semantic-ui-react';
 import axios from 'axios';
+import researchSplash from '../assets/research-splash.jpg';
 import './Splash.css';
 
 export default function Splash({ onCreateProject, onViewProjects, onViewSites }) {
@@ -28,14 +29,9 @@ export default function Splash({ onCreateProject, onViewProjects, onViewSites })
   return (
     <div className="splash-page">
       {/* Hero Section */}
-      <div className="splash-hero" role="img" aria-label="Research Data Hub hero">
+      <div className="splash-hero" role="img" aria-label="Research Data Hub hero" style={{ backgroundImage: `url(${researchSplash})` }}>
         <div className="splash-hero-overlay">
           <div className="splash-hero-content">
-            <div className="hero-badge">
-              <Icon name="database" /> Research Data Hub
-            </div>
-            <h1 className="hero-title">Landmarks Preservation Commission</h1>
-            <h2 className="hero-subtitle">Research Data Hub</h2>
             <p className="hero-description">
               Search, explore, and manage LPC's research dataset. 
               Create projects, link sites, and analyze landmark preservation data.

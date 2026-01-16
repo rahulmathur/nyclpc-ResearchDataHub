@@ -1,5 +1,0 @@
-.wizard { padding: 12px; }
-.wizard-steps { color: #6b6b6b; }
-.wizard-actions { display:flex; gap:8px; margin-top:12px; }
-.empty, .loading { padding:12px; color:#666; }
-/* Most visual styling handled by Semantic UI; keep only small layout overrides here. */

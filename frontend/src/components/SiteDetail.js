@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Segment, Header, Button, Table, Message, Loader, Card, Grid } from 'semantic-ui-react';
 import axios from 'axios';
 
-export default function SiteDetail({ site, onBack }) {
+export default function SiteDetail({ site, onBack, backLabel = '← Back to Sites' }) {
   const [siteDetails, setSiteDetails] = useState(null);
   const [tables, setTables] = useState([]);
   const [satelliteTables, setSatelliteTables] = useState({});
@@ -293,7 +293,7 @@ export default function SiteDetail({ site, onBack }) {
     <div>
       <Segment>
         <Button icon onClick={onBack} style={{ marginBottom: '1rem' }}>
-          ← Back to Sites
+          {backLabel}
         </Button>
         
         <Header as="h2">Site Details</Header>

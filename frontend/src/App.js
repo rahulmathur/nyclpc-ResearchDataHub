@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
-import { Menu, Container, Dropdown } from 'semantic-ui-react';
+import { Menu, Container, Dropdown, Icon, Sidebar, SidebarPushable, SidebarPusher } from 'semantic-ui-react';
 import TableView from './components/TableView';
 import QueryEditor from './components/QueryEditor';
 import ConnectionStatus from './components/ConnectionStatus';
@@ -22,6 +22,10 @@ function App() {
   const [editingProject, setEditingProject] = useState(null);
   // Sites detail state
   const [selectedSite, setSelectedSite] = useState(null);
+  // Mobile menu state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Track previous view for navigation
+  const [previousView, setPreviousView] = useState(null);
 
   useEffect(() => {
     checkConnection();
@@ -54,52 +58,168 @@ function App() {
   const createProject = () => { setEditingProject(null); setActiveView('create-project'); };
   const viewProjects = () => setActiveView('projects');
   const viewSites = () => { setSelectedSite(null); setActiveView('sites'); };
-  const viewSiteDetail = (site) => { setSelectedSite(site); setActiveView('site-detail'); };
-  const backToSites = () => { setSelectedSite(null); setActiveView('sites'); };
+  const viewSiteDetail = (site, fromView = null) => { 
+    setPreviousView(fromView || activeView);
+    setSelectedSite(site); 
+    setActiveView('site-detail'); 
+  };
+  const backFromSiteDetail = () => {
+    if (previousView) {
+      setActiveView(previousView);
+      setPreviousView(null);
+    } else {
+      setSelectedSite(null);
+      setActiveView('sites');
+    }
+  };
 
   const editProject = (project) => { setEditingProject(project); setActiveView('create-project'); };
 
+  const handleNavClick = (view) => {
+    setActiveView(view);
+    setMobileMenuOpen(false);
+  };
 
   return (
     <div className="app">
-      <Menu inverted className="app-header">
-        <Container>
+      <Menu inverted className="app-header" fixed="top">
+        <Container fluid className="nav-container">
           {/* BrandHeader component is used for logo */}
           <BrandHeader />
 
-          <Menu.Menu position="left">
-            <Menu.Item name="home" active={activeView === 'splash'} onClick={() => setActiveView('splash')}>
-              <span className="nav-icon">🏠</span> Home
+          {/* Desktop Navigation */}
+          <Menu.Menu position="left" className="desktop-nav">
+            <Menu.Item 
+              name="home" 
+              active={activeView === 'splash'} 
+              onClick={() => handleNavClick('splash')}
+              className="nav-item"
+            >
+              <Icon name="home" />
+              <span className="nav-text">Home</span>
             </Menu.Item>
-            <Menu.Item name="projects" active={activeView === 'projects'} onClick={() => viewProjects()}>
-              <span className="nav-icon">📁</span> Projects
+            <Menu.Item 
+              name="projects" 
+              active={activeView === 'projects'} 
+              onClick={() => { handleNavClick('projects'); viewProjects(); }}
+              className="nav-item"
+            >
+              <Icon name="folder" />
+              <span className="nav-text">Projects</span>
             </Menu.Item>
-            <Menu.Item name="sites" active={activeView === 'sites' || activeView === 'site-detail'} onClick={() => viewSites()}>
-              <span className="nav-icon">📍</span> Sites
+            <Menu.Item 
+              name="sites" 
+              active={activeView === 'sites' || activeView === 'site-detail'} 
+              onClick={() => { handleNavClick('sites'); viewSites(); }}
+              className="nav-item"
+            >
+              <Icon name="map marker alternate" />
+              <span className="nav-text">Sites</span>
             </Menu.Item>
-            <Dropdown item text="Utilities">
+            <Dropdown 
+              item 
+              text="Utilities" 
+              className="nav-item utilities-dropdown"
+              icon="wrench"
+              pointing="left"
+            >
               <Dropdown.Menu>
-                <Dropdown.Item active={activeView === 'tables'} onClick={() => setActiveView('tables')}>
-                  <span className="nav-icon">📊</span> Tables
+                <Dropdown.Item 
+                  active={activeView === 'tables'} 
+                  onClick={() => handleNavClick('tables')}
+                >
+                  <Icon name="table" />
+                  <span>Tables</span>
                 </Dropdown.Item>
-                <Dropdown.Item active={activeView === 'query'} onClick={() => setActiveView('query')}>
-                  <span className="nav-icon">⚡</span> Query
+                <Dropdown.Item 
+                  active={activeView === 'query'} 
+                  onClick={() => handleNavClick('query')}
+                >
+                  <Icon name="code" />
+                  <span>Query Editor</span>
                 </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>
-
           </Menu.Menu>
 
-          <Menu.Menu position="right">
-
-            <Menu.Item>
+          <Menu.Menu position="right" className="desktop-nav">
+            <Menu.Item className="connection-status-item">
               <ConnectionStatus status={connectionStatus} />
             </Menu.Item>
           </Menu.Menu>
-        </Container>
-      </Menu> 
 
-      <div className="app-body">
+          {/* Mobile Menu Toggle */}
+          <Menu.Menu position="right" className="mobile-nav-toggle">
+            <Menu.Item onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+              <Icon name={mobileMenuOpen ? 'close' : 'sidebar'} size="large" />
+            </Menu.Item>
+          </Menu.Menu>
+        </Container>
+      </Menu>
+
+      {/* Mobile Sidebar Menu */}
+      <SidebarPushable as="div">
+        {mobileMenuOpen && (
+          <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)} />
+        )}
+        <Sidebar
+          as={Menu}
+          animation="overlay"
+          icon="labeled"
+          inverted
+          onHide={() => setMobileMenuOpen(false)}
+          vertical
+          visible={mobileMenuOpen}
+          width="thin"
+          className="mobile-sidebar"
+        >
+          <Menu.Item 
+            name="home" 
+            active={activeView === 'splash'} 
+            onClick={() => handleNavClick('splash')}
+          >
+            <Icon name="home" />
+            Home
+          </Menu.Item>
+          <Menu.Item 
+            name="projects" 
+            active={activeView === 'projects'} 
+            onClick={() => { handleNavClick('projects'); viewProjects(); }}
+          >
+            <Icon name="folder" />
+            Projects
+          </Menu.Item>
+          <Menu.Item 
+            name="sites" 
+            active={activeView === 'sites' || activeView === 'site-detail'} 
+            onClick={() => { handleNavClick('sites'); viewSites(); }}
+          >
+            <Icon name="map marker alternate" />
+            Sites
+          </Menu.Item>
+          <Menu.Item 
+            name="tables" 
+            active={activeView === 'tables'} 
+            onClick={() => handleNavClick('tables')}
+          >
+            <Icon name="table" />
+            Tables
+          </Menu.Item>
+          <Menu.Item 
+            name="query" 
+            active={activeView === 'query'} 
+            onClick={() => handleNavClick('query')}
+          >
+            <Icon name="code" />
+            Query Editor
+          </Menu.Item>
+          <Menu.Item className="mobile-connection-status">
+            <ConnectionStatus status={connectionStatus} />
+          </Menu.Item>
+        </Sidebar>
+
+        <SidebarPusher dimmed={mobileMenuOpen}>
+          <div className="app-body">
         {activeView === 'splash' ? (
           <Splash onCreateProject={createProject} onViewProjects={viewProjects} onViewSites={viewSites} />
         ) : activeView === 'tables' ? (
@@ -152,17 +272,28 @@ function App() {
         ) : activeView === 'sites' ? (
           <SitesList onEdit={viewSiteDetail} onChange={loadTables} />
         ) : activeView === 'site-detail' && selectedSite ? (
-          <SiteDetail site={selectedSite} onBack={backToSites} />
+          <SiteDetail 
+            site={selectedSite} 
+            onBack={backFromSiteDetail}
+            backLabel={previousView === 'create-project' ? '← Back to Project' : previousView === 'projects' ? '← Back to Projects' : '← Back to Sites'}
+          />
         ) : activeView === 'create-project' ? (
-          <CreateProject project={editingProject} onCreated={() => { setActiveView('projects'); setEditingProject(null); loadTables(); }} onCancel={() => { setActiveView('projects'); setEditingProject(null); }} />
+          <CreateProject 
+            project={editingProject} 
+            onCreated={() => { setActiveView('projects'); setEditingProject(null); loadTables(); }} 
+            onCancel={() => { setActiveView('projects'); setEditingProject(null); }}
+            onViewSiteDetail={viewSiteDetail}
+          />
         ) : null}
-      </div>
+          </div>
 
-      <footer className="site-footer">
-        <Container>
-          <div>© City of New York. Landmarks Preservation Commission · <a href="https://www.nyc.gov/site/lpc/index.page" target="_blank" rel="noopener noreferrer">nyc.gov/site/lpc</a></div>
-        </Container>
-      </footer>
+          <footer className="site-footer">
+            <Container>
+              <div>© City of New York. Landmarks Preservation Commission · <a href="https://www.nyc.gov/site/lpc/index.page" target="_blank" rel="noopener noreferrer">nyc.gov/site/lpc</a></div>
+            </Container>
+          </footer>
+        </SidebarPusher>
+      </SidebarPushable>
     </div>
   );
 }
