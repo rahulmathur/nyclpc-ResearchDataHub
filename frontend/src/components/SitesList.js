@@ -95,14 +95,13 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
           {sites.map(s => (
             <Table.Row key={s.id || s.hub_site_id}>
               <Table.Cell>
-                <a
-                  href="#"
+                <button
                   onClick={(e) => openDetails(e, s)}
-                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                  style={{ textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', color: '#0066cc', padding: 0, font: 'inherit' }}
                   aria-label={`View details for site ${s.id || s.hub_site_id}`}
                 >
                   {s.id || s.hub_site_id}
-                </a>
+                </button>
               </Table.Cell>
               {schemaFields && schemaFields.filter(f => f !== 'id' && f !== 'hub_site_id').map(field => (
                 <Table.Cell key={field}>{s[field]}</Table.Cell>
