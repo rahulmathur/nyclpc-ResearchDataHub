@@ -28,7 +28,8 @@ PORT=5000
 ```
 
 Frontend environment:
-- `frontend/.env.staging` — sets `REACT_APP_API_URL=https://<your-beanstalk-domain>`
+- `frontend/.env.staging` — sets `REACT_APP_API_URL=http://<your-beanstalk-domain>` (use `http://` if Beanstalk doesn't have HTTPS configured)
+  - Or `REACT_APP_API_URL=https://<your-beanstalk-domain>` if HTTPS is properly configured
 
 Note: Place the AWS RDS CA bundle at `backend/ca_certificate_aws-rds.pem` if you want SSL certificate verification. The backend will auto-detect and use it when present.
 
@@ -93,8 +94,12 @@ The backend automatically detects RDS hosts and uses the CA certificate if prese
 1) New Pages project from the repo, root `frontend`.
 2) Build command: `npm install && npm run build`
 3) Build output directory: `build`
-4) Set environment variable: `REACT_APP_API_URL=https://<your-beanstalk-url>.elasticbeanstalk.com`
+4) Set environment variable: `REACT_APP_API_URL=http://<your-beanstalk-url>.elasticbeanstalk.com`
+   - Use `http://` if Beanstalk doesn't have HTTPS configured (workaround for SSL issues)
+   - Use `https://` if Beanstalk has proper HTTPS/SSL setup
 5) Deploy and test that the UI calls the Beanstalk backend (check network tab in browser dev tools).
+
+**Note on HTTPS/HTTP:** If your Beanstalk environment doesn't have HTTPS properly configured (common with default Elastic Beanstalk setups), use `http://` in `REACT_APP_API_URL` as a workaround. The Cloudflare function will also default to `http://` if no protocol is specified.
 
 ## Data Migration (Dev → Staging)
 Uses `.env.development` as source and `.env.staging` as target (works for Railway PG or RDS):
