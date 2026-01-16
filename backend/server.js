@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Only load .env in development/local environments
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
