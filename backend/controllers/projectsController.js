@@ -118,11 +118,12 @@ async function getProjectSiteAttributes(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const result = await getPool().query(`
       SELECT psa.sat_project_site_attributes_id, psa.hub_project_id, psa.attribute_id, psa.create_dt,
+             psa.sort_order,
              ra.attribute_nm, ra.attribute_text, ra.attribute_desc, ra.attribute_type
       FROM sat_project_site_attributes psa
       JOIN ref_attributes ra ON psa.attribute_id = ra.attribute_id
       WHERE psa.hub_project_id = $1
-      ORDER BY ra.attribute_nm
+      ORDER BY psa.sort_order, ra.attribute_nm
     `, [projectId]);
     res.json({ success: true, data: result.rows });
   } catch (error) {
@@ -146,11 +147,12 @@ async function updateProjectSiteAttributes(req, res) {
       [projectId]
     );
 
-    // Insert new attributes
-    for (const attrId of attributeIds) {
+    // Insert new attributes with sort_order based on array position
+    for (let i = 0; i < attributeIds.length; i++) {
+      const attrId = attributeIds[i];
       await getPool().query(
-        'INSERT INTO sat_project_site_attributes (hub_project_id, attribute_id) VALUES ($1, $2)',
-        [projectId, attrId]
+        'INSERT INTO sat_project_site_attributes (hub_project_id, attribute_id, sort_order) VALUES ($1, $2, $3)',
+        [projectId, attrId, i]
       );
     }
 
@@ -183,13 +185,13 @@ async function getSitesWithAttributes(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
     
-    // Get project's selected attributes
+    // Get project's selected attributes ordered by sort_order
     const attrsResult = await pool.query(`
-      SELECT ra.attribute_id, ra.attribute_nm, ra.attribute_text, ra.attribute_type
+      SELECT ra.attribute_id, ra.attribute_nm, ra.attribute_text, ra.attribute_type, psa.sort_order
       FROM sat_project_site_attributes psa
       JOIN ref_attributes ra ON psa.attribute_id = ra.attribute_id
       WHERE psa.hub_project_id = $1
-      ORDER BY ra.attribute_nm
+      ORDER BY psa.sort_order, ra.attribute_nm
     `, [projectId]);
     const attributes = attrsResult.rows;
     
@@ -358,6 +360,52 @@ function groupAndSet(rows, resultMap, valueKey) {
   }
 }
 
+// Get all available sites (for adding to projects)
+async function getAllSites(req, res) {
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const result = await getPool().query(`
+      SELECT hub_site_id
+      FROM hub_sites
+      ORDER BY hub_site_id
+    `);
+    const sites = result.rows.map(r => ({ ...r, id: r.hub_site_id }));
+    res.json({ success: true, data: sites });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// Update sites for a project (replace all linked sites)
+async function updateProjectSites(req, res) {
+  const { projectId } = req.params;
+  const { siteIds } = req.body || {};
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    if (!Array.isArray(siteIds)) {
+      return res.status(400).json({ error: 'siteIds must be an array' });
+    }
+
+    // Delete existing site links for this project
+    await getPool().query(
+      'DELETE FROM lnk_project_site WHERE hub_project_id = $1',
+      [projectId]
+    );
+
+    // Insert new site links
+    for (const siteId of siteIds) {
+      await getPool().query(
+        'INSERT INTO lnk_project_site (hub_project_id, hub_site_id) VALUES ($1, $2)',
+        [projectId, siteId]
+      );
+    }
+
+    res.json({ success: true, count: siteIds.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
 module.exports = { 
   listProjects, 
   getProjectSites, 
@@ -367,5 +415,7 @@ module.exports = {
   getProjectSiteAttributes,
   updateProjectSiteAttributes,
   getSiteAttributes,
-  getSitesWithAttributes
+  getSitesWithAttributes,
+  getAllSites,
+  updateProjectSites
 };

@@ -3,6 +3,7 @@ import { Segment, Header, Form, Button, Grid, Message } from 'semantic-ui-react'
 import axios from 'axios';
 import './CreateProject.css';
 import SiteSelectionModal from './SiteSelectionModal';
+import AddSitesModal from './AddSitesModal';
 import AttributeSelectionModal from './AttributeSelectionModal';
 
 export default function CreateProject({ onCreated, onCancel, project }) {
@@ -21,6 +22,7 @@ export default function CreateProject({ onCreated, onCancel, project }) {
   const [success, setSuccess] = useState(null);
   const [errors, setErrors] = useState({});
   const [siteModalOpen, setSiteModalOpen] = useState(false);
+  const [addSitesModalOpen, setAddSitesModalOpen] = useState(false);
   const [selectedSites, setSelectedSites] = useState([]);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [selectedAttributes, setSelectedAttributes] = useState([]);
@@ -448,6 +450,9 @@ export default function CreateProject({ onCreated, onCancel, project }) {
                 <Button onClick={() => { if (onCancel) onCancel(); }} disabled={loading} style={{ marginLeft: 8 }}>Cancel</Button>
                 {project && (
                   <>
+                    <Button onClick={() => setAddSitesModalOpen(true)} style={{ marginLeft: 8 }}>
+                      Add Sites
+                    </Button>
                     <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
                       View Sites ({selectedSites.length})
                     </Button>
@@ -501,6 +506,15 @@ export default function CreateProject({ onCreated, onCancel, project }) {
             open={siteModalOpen} 
             onClose={() => setSiteModalOpen(false)} 
             projectId={project.id} 
+          />
+        )}
+
+        {project && (
+          <AddSitesModal
+            open={addSitesModalOpen}
+            onClose={() => setAddSitesModalOpen(false)}
+            projectId={project.id}
+            onSitesUpdated={setSelectedSites}
           />
         )}
 

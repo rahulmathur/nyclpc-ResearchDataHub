@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input, Table, Checkbox, Message, Dimmer, Loader } from 'semantic-ui-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Modal, Button, Input, Table, Checkbox, Message, Dimmer, Loader, Icon, Segment, Header } from 'semantic-ui-react';
 import axios from 'axios';
 
 export default function AttributeSelectionModal({ open, onClose, projectId, onAttributesSelected }) {
   const [attributes, setAttributes] = useState([]);
-  const [selectedAttributes, setSelectedAttributes] = useState(new Set());
+  const [orderedSelectedIds, setOrderedSelectedIds] = useState([]); // Array to maintain order
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [draggedIndex, setDraggedIndex] = useState(null);
 
   // Load all site attributes on open
   useEffect(() => {
@@ -41,27 +42,33 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
     try {
       const response = await axios.get(`/api/projects/${projectId}/site-attributes`);
       const projectAttrs = response.data?.data || [];
-      setSelectedAttributes(new Set(projectAttrs.map(pa => pa.attribute_id)));
+      // Already sorted by sort_order from backend
+      setOrderedSelectedIds(projectAttrs.map(pa => pa.attribute_id));
     } catch (err) {
       console.error('Failed to load project attributes:', err);
     }
   };
 
   const handleToggleAttribute = (attrId) => {
-    const newSelected = new Set(selectedAttributes);
-    if (newSelected.has(attrId)) {
-      newSelected.delete(attrId);
+    if (orderedSelectedIds.includes(attrId)) {
+      // Remove from selection
+      setOrderedSelectedIds(prev => prev.filter(id => id !== attrId));
     } else {
-      newSelected.add(attrId);
+      // Add to end of selection
+      setOrderedSelectedIds(prev => [...prev, attrId]);
     }
-    setSelectedAttributes(newSelected);
   };
 
   const handleSelectAll = () => {
-    if (selectedAttributes.size === filteredAttributes.length) {
-      setSelectedAttributes(new Set());
+    if (orderedSelectedIds.length === filteredAttributes.length) {
+      setOrderedSelectedIds([]);
     } else {
-      setSelectedAttributes(new Set(filteredAttributes.map(a => a.attribute_id)));
+      // Add all filtered that aren't already selected, preserving existing order
+      const currentSet = new Set(orderedSelectedIds);
+      const newIds = filteredAttributes
+        .filter(a => !currentSet.has(a.attribute_id))
+        .map(a => a.attribute_id);
+      setOrderedSelectedIds([...orderedSelectedIds, ...newIds]);
     }
   };
 
@@ -69,11 +76,12 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
     setSaving(true);
     setError(null);
     try {
+      // Send in order - backend will use array position as sort_order
       await axios.put(`/api/projects/${projectId}/site-attributes`, {
-        attributeIds: Array.from(selectedAttributes)
+        attributeIds: orderedSelectedIds
       });
 
-      if (onAttributesSelected) onAttributesSelected(Array.from(selectedAttributes));
+      if (onAttributesSelected) onAttributesSelected(orderedSelectedIds);
       onClose();
     } catch (err) {
       setError('Failed to save attribute selections');
@@ -81,6 +89,46 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
     } finally {
       setSaving(false);
     }
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = useCallback((e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }, []);
+
+  const handleDragOver = useCallback((e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDrop = useCallback((e, dropIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === dropIndex) return;
+
+    setOrderedSelectedIds(prev => {
+      const newOrder = [...prev];
+      const [removed] = newOrder.splice(draggedIndex, 1);
+      newOrder.splice(dropIndex, 0, removed);
+      return newOrder;
+    });
+    setDraggedIndex(null);
+  }, [draggedIndex]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedIndex(null);
+  }, []);
+
+  const moveItem = (index, direction) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= orderedSelectedIds.length) return;
+    
+    setOrderedSelectedIds(prev => {
+      const newOrder = [...prev];
+      const [removed] = newOrder.splice(index, 1);
+      newOrder.splice(newIndex, 0, removed);
+      return newOrder;
+    });
   };
 
   const filteredAttributes = attributes.filter(a => {
@@ -91,6 +139,14 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
     return name.includes(term) || text.includes(term) || desc.includes(term);
   });
 
+  // Get attribute details by ID
+  const getAttrById = (id) => attributes.find(a => a.attribute_id === id);
+
+  // Selected attributes in order
+  const selectedAttributesOrdered = orderedSelectedIds
+    .map(id => getAttrById(id))
+    .filter(Boolean);
+
   return (
     <Modal open={open} onClose={onClose} size="large">
       <Modal.Header>Select Site Attributes for Project</Modal.Header>
@@ -98,8 +154,62 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
         {error && <Message negative content={error} />}
         
         <p style={{ color: '#666', marginBottom: 16 }}>
-          Select which attributes should be tracked for sites in this project.
+          Select which attributes should be tracked for sites in this project. Drag to reorder how columns appear.
         </p>
+
+        {/* Selected Attributes - Reorderable */}
+        {selectedAttributesOrdered.length > 0 && (
+          <Segment>
+            <Header as="h4" style={{ marginBottom: 12 }}>
+              <Icon name="ordered list" />
+              Selected Attributes (drag to reorder)
+            </Header>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {selectedAttributesOrdered.map((attr, index) => (
+                <div
+                  key={attr.attribute_id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDrop={(e) => handleDrop(e, index)}
+                  onDragEnd={handleDragEnd}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    backgroundColor: draggedIndex === index ? '#e8f4f8' : '#f9f9f9',
+                    border: '1px solid #ddd',
+                    borderRadius: 4,
+                    cursor: 'grab',
+                    opacity: draggedIndex === index ? 0.5 : 1
+                  }}
+                >
+                  <Icon name="bars" style={{ marginRight: 12, color: '#999' }} />
+                  <span style={{ flex: 1 }}>
+                    <strong>{index + 1}.</strong> {attr.attribute_nm}
+                    {attr.attribute_text && <span style={{ color: '#666' }}> ({attr.attribute_text})</span>}
+                  </span>
+                  <Button.Group size="mini">
+                    <Button icon="arrow up" disabled={index === 0} onClick={() => moveItem(index, -1)} />
+                    <Button icon="arrow down" disabled={index === selectedAttributesOrdered.length - 1} onClick={() => moveItem(index, 1)} />
+                  </Button.Group>
+                  <Button 
+                    icon="remove" 
+                    size="mini" 
+                    negative 
+                    style={{ marginLeft: 8 }}
+                    onClick={() => handleToggleAttribute(attr.attribute_id)}
+                  />
+                </div>
+              ))}
+            </div>
+          </Segment>
+        )}
+
+        <Header as="h4" style={{ marginTop: 20, marginBottom: 12 }}>
+          <Icon name="list" />
+          Available Attributes
+        </Header>
 
         <Input
           placeholder="Search by attribute name or description..."
@@ -118,8 +228,8 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
             <div style={{ marginBottom: 12 }}>
               <Checkbox
                 label={`Select All (${filteredAttributes.length})`}
-                checked={selectedAttributes.size === filteredAttributes.length && filteredAttributes.length > 0}
-                indeterminate={selectedAttributes.size > 0 && selectedAttributes.size < filteredAttributes.length}
+                checked={orderedSelectedIds.length === filteredAttributes.length && filteredAttributes.length > 0}
+                indeterminate={orderedSelectedIds.length > 0 && orderedSelectedIds.length < filteredAttributes.length}
                 onChange={handleSelectAll}
               />
             </div>
@@ -137,13 +247,20 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
               <Table.Body>
                 {filteredAttributes.map((attr) => {
                   const attrId = attr.attribute_id;
+                  const isSelected = orderedSelectedIds.includes(attrId);
+                  const orderIndex = orderedSelectedIds.indexOf(attrId);
                   return (
-                    <Table.Row key={attrId}>
+                    <Table.Row key={attrId} positive={isSelected}>
                       <Table.Cell textAlign="center">
                         <Checkbox
-                          checked={selectedAttributes.has(attrId)}
+                          checked={isSelected}
                           onChange={() => handleToggleAttribute(attrId)}
                         />
+                        {isSelected && (
+                          <div style={{ fontSize: '0.8em', color: '#666', marginTop: 2 }}>
+                            #{orderIndex + 1}
+                          </div>
+                        )}
                       </Table.Cell>
                       <Table.Cell><strong>{attr.attribute_nm}</strong></Table.Cell>
                       <Table.Cell>{attr.attribute_text || '-'}</Table.Cell>
@@ -173,7 +290,7 @@ export default function AttributeSelectionModal({ open, onClose, projectId, onAt
       <Modal.Actions>
         <Button onClick={onClose}>Cancel</Button>
         <Button primary onClick={handleSave} loading={saving} disabled={saving}>
-          Save Selection ({selectedAttributes.size} selected)
+          Save Selection ({orderedSelectedIds.length} selected)
         </Button>
       </Modal.Actions>
     </Modal>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import { Segment, Header, List, Loader, Message, Button, Grid, Card } from 'semantic-ui-react';
+import { Segment, Header, List, Loader, Message, Button, Grid, Card, Modal } from 'semantic-ui-react';
+import SiteDetail from './SiteDetail';
 import './Wizard.css';
 
 function Wizard() {
@@ -13,6 +14,8 @@ function Wizard() {
   const [loadingSites, setLoadingSites] = useState(false);
   const [error, setError] = useState(null);
   const [lastProjectsRaw, setLastProjectsRaw] = useState(null);
+  const [siteDetailModalOpen, setSiteDetailModalOpen] = useState(false);
+  const [siteToView, setSiteToView] = useState(null);
 
   const projectsRef = useRef(null);
 
@@ -21,9 +24,7 @@ function Wizard() {
   }, []);
 
   useEffect(() => {
-    // when step 1 is active and projects are loaded, focus the first project item for keyboard users
     if (step === 1 && projectsRef.current) {
-      // List.Item uses role="button" and may not render as <li>; query for role attribute
       const firstItem = projectsRef.current.querySelector('[role="button"]');
       if (firstItem && typeof firstItem.focus === 'function') firstItem.focus();
     }
@@ -78,8 +79,21 @@ function Wizard() {
       setError('Please select a project and site before confirming');
       return;
     }
-    // Placeholder: Do something with the selected project/site
     alert(`Selected project: ${getName(selectedProject)} (${getId(selectedProject)})\nSelected site: ${getName(selectedSite)} (${getId(selectedSite)})`);
+  };
+
+  const openSiteDetails = (site, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setSiteToView(site);
+    setSiteDetailModalOpen(true);
+  };
+
+  const closeSiteDetails = () => {
+    setSiteDetailModalOpen(false);
+    setSiteToView(null);
   };
 
   return (
@@ -162,7 +176,17 @@ function Wizard() {
                   >
                     <Card.Content>
                       <Card.Header>{getName(s)}</Card.Header>
-                      <Card.Meta>ID: {getId(s)}</Card.Meta>
+                      <Card.Meta>
+                        ID:{' '}
+                        <a
+                          href="#"
+                          onClick={(e) => openSiteDetails(s, e)}
+                          style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                          aria-label={`View details for site ${getId(s)}`}
+                        >
+                          {getId(s)}
+                        </a>
+                      </Card.Meta>
                     </Card.Content>
                   </Card>
                 ))}
@@ -176,6 +200,17 @@ function Wizard() {
           </div>
         )}
       </Segment>
+
+      <Modal
+        open={siteDetailModalOpen}
+        onClose={closeSiteDetails}
+        size="fullscreen"
+        closeIcon
+      >
+        <Modal.Content scrolling>
+          {siteToView && <SiteDetail site={siteToView} onBack={closeSiteDetails} />}
+        </Modal.Content>
+      </Modal>
     </div>
   );
 }

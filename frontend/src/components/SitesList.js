@@ -1,14 +1,17 @@
+// frontend/src/components/SitesList.js - UPDATED
 import React, { useEffect, useState } from 'react';
-import { Segment, Header, Table, Button, Icon, Loader, Message } from 'semantic-ui-react';
+import { Segment, Header, Table, Button, Icon, Loader, Message, Modal } from 'semantic-ui-react';
 import axios from 'axios';
+import SiteDetail from './SiteDetail';
 
 export default function SitesList({ onEdit, onCreate, onChange }) {
   const [sites, setSites] = useState([]);
   const [schemaFields, setSchemaFields] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailSite, setDetailSite] = useState(null);
 
-  // Fetch schema columns for hub_sites
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -46,6 +49,20 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
 
   useEffect(() => { load(); }, []);
 
+  const openDetails = (e, s) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setDetailSite(s);
+    setDetailOpen(true);
+  };
+
+  const closeDetails = () => {
+    setDetailOpen(false);
+    setDetailSite(null);
+  };
+
   const handleDelete = async (s) => {
     if (!window.confirm(`Delete site "${s.name || s.id}"?`)) return;
     try {
@@ -77,7 +94,16 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
         <Table.Body>
           {sites.map(s => (
             <Table.Row key={s.id || s.hub_site_id}>
-              <Table.Cell>{s.id || s.hub_site_id}</Table.Cell>
+              <Table.Cell>
+                <a
+                  href="#"
+                  onClick={(e) => openDetails(e, s)}
+                  style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                  aria-label={`View details for site ${s.id || s.hub_site_id}`}
+                >
+                  {s.id || s.hub_site_id}
+                </a>
+              </Table.Cell>
               {schemaFields && schemaFields.filter(f => f !== 'id' && f !== 'hub_site_id').map(field => (
                 <Table.Cell key={field}>{s[field]}</Table.Cell>
               ))}
@@ -93,6 +119,17 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
           ))}
         </Table.Body>
       </Table>
+
+      <Modal
+        open={detailOpen}
+        onClose={closeDetails}
+        size="fullscreen"
+        closeIcon
+      >
+        <Modal.Content scrolling>
+          {detailSite && <SiteDetail site={detailSite} onBack={closeDetails} />}
+        </Modal.Content>
+      </Modal>
     </Segment>
   );
 }
