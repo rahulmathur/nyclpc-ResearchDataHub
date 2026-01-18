@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Button, Input, Table, Message, Dimmer, Loader } from 'semantic-ui-react';
 import axios from 'axios';
 
-export default function SiteSelectionModal({ open, onClose, projectId }) {
+export default function SiteSelectionModal({ open, onClose, projectId, onViewSiteDetail }) {
   const [sites, setSites] = useState([]);
   const [attributes, setAttributes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -96,9 +96,46 @@ export default function SiteSelectionModal({ open, onClose, projectId }) {
                   <Table.Body>
                     {filteredSites.map((site) => {
                       const siteId = site.hub_site_id || site.id;
+                      const handleSiteIdClick = (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onViewSiteDetail) {
+                          onViewSiteDetail(site);
+                        }
+                      };
                       return (
                         <Table.Row key={siteId}>
-                          <Table.Cell>{siteId}</Table.Cell>
+                          <Table.Cell>
+                            {onViewSiteDetail ? (
+                              <button
+                                type="button"
+                                onClick={handleSiteIdClick}
+                                className="site-id-link"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  textDecoration: 'underline',
+                                  cursor: 'pointer',
+                                  fontWeight: '500',
+                                  color: '#00ccff',
+                                  transition: 'color 0.2s ease',
+                                  font: 'inherit'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = '#00ff88';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = '#00ccff';
+                                }}
+                                aria-label={`View details for site ${siteId}`}
+                              >
+                                {siteId}
+                              </button>
+                            ) : (
+                              siteId
+                            )}
+                          </Table.Cell>
                           {attributes.map(attr => (
                             <Table.Cell key={attr.id} style={{ 
                               maxWidth: 250, 

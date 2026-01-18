@@ -7,7 +7,7 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Middleware
 app.use(cors());
@@ -72,6 +72,34 @@ app.get('/api/tables', async (req, res) => {
   }
 });
 
+// Site geometry: fetch from sat_site_geometry by hub_site_id (avoids limit/offset of generic table API)
+app.get('/api/sites/:siteId/geometry', async (req, res) => {
+  const { siteId } = req.params;
+  const { getPool } = require('./db');
+  try {
+    const pool = getPool();
+    if (!pool) return res.status(500).json({ error: 'Database not connected' });
+    const geomColRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+    );
+    const geomCol = geomColRes.rows[0]?.column_name;
+    if (!geomCol || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(geomCol)) return res.json({ success: true, data: [] });
+    const result = await pool.query(
+      `SELECT hub_site_id,
+        CASE WHEN ST_SRID("${geomCol}") IS NOT NULL AND ST_SRID("${geomCol}") > 0
+          THEN ST_AsGeoJSON(ST_Transform("${geomCol}", 4326))::text
+          ELSE ST_AsGeoJSON("${geomCol}")::text
+        END AS geometry
+       FROM sat_site_geometry WHERE hub_site_id = $1`,
+      [siteId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (e) {
+    console.error('GET /api/sites/:siteId/geometry', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Table CRUD & listing endpoints
 const tableController = require('./controllers/tableController');
 app.get('/api/table/:tableName', tableController.getTableData);
@@ -98,7 +126,6 @@ app.get('/api/site-attributes', projectsController.getSiteAttributes);
 app.get('/api/sites', projectsController.getAllSites);
 
 // Table/columns/projects routes are now implemented in separate controllers (see ./controllers/*)
-
 
 // Sites for a project handled by projectsController.getProjectSites
 

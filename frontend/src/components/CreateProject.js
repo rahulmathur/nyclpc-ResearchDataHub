@@ -32,47 +32,43 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
 
   // Initialize ArcGIS map
   useEffect(() => {
-    if (!mapRef.current) return;
+    let retries = 0;
+    let viewInstance = null;
 
-    // Use global esri object from CDN
-    const esriModules = window.require;
-    if (!esriModules) {
-      console.error('ArcGIS SDK not loaded. Make sure the CDN script is loaded in index.html');
-      return;
-    }
+    const initializeMap = (Map, MapView, Extent) => {
+      if (!mapRef.current) return;
+      try {
+        if (mapViewRef.current) {
+          try { mapViewRef.current.destroy(); } catch (e) {}
+        }
+        const map = new Map({ basemap: 'arcgis-streets' });
+        const nycExtent = new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } });
+        const view = new MapView({ container: mapRef.current, map, extent: nycExtent });
+        mapViewRef.current = view;
+        viewInstance = view;
+        view.on('click', (event) => {
+          const point = view.toMap({ x: event.x, y: event.y });
+          setPosition({ lat: point.latitude, lng: point.longitude });
+        });
+        view.when(() => {}).catch((err) => console.error('Map view error:', err));
+      } catch (err) { console.error('Error creating map:', err); }
+    };
 
-    esriModules(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'], (Map, MapView, Extent) => {
-      const map = new Map({
-        basemap: 'arcgis-streets'
-      });
+    const tryInitialize = () => {
+      retries++;
+      if (!mapRef.current || !window.require) {
+        if (retries < 30) setTimeout(tryInitialize, 100);
+        return;
+      }
+      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'], initializeMap);
+    };
+    tryInitialize();
 
-      // NYC extent (west, south, east, north)
-      const nycExtent = new Extent({
-        xmin: -74.256,
-        ymin: 40.496,
-        xmax: -73.700,
-        ymax: 40.916,
-        spatialReference: { wkid: 4326 }
-      });
-
-      const view = new MapView({
-        container: mapRef.current,
-        map: map,
-        extent: nycExtent
-      });
-
-      mapViewRef.current = view;
-
-      // Handle map click to set position
-      view.on('click', (event) => {
-        const point = view.toMap({ x: event.x, y: event.y });
-        setPosition({ lat: point.latitude, lng: point.longitude });
-      });
-
-      return () => {
-        view.destroy();
-      };
-    });
+    return () => {
+      if (viewInstance) {
+        try { viewInstance.destroy(); viewInstance = null; mapViewRef.current = null; } catch (e) {}
+      }
+    };
   }, []);
 
   // Fetch column metadata for hub_projects (authoritative). Fallback to sampling a row or defaults.
@@ -494,7 +490,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
           </Grid.Column>
 
           <Grid.Column width={8}>
-            <div ref={mapRef} style={{ height: 360, width: '100%', borderRadius: '4px' }} />
+            <div ref={mapRef} style={{ height: 360, width: '100%', borderRadius: '4px', minHeight: '360px', background: 'var(--bg-secondary)' }} />
             <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
               Click on the map to set the project's location. You can also enter latitude/longitude manually.
             </div>
@@ -505,7 +501,8 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
           <SiteSelectionModal 
             open={siteModalOpen} 
             onClose={() => setSiteModalOpen(false)} 
-            projectId={project.id} 
+            projectId={project.id}
+            onViewSiteDetail={onViewSiteDetail ? (site) => onViewSiteDetail(site, 'create-project') : undefined}
           />
         )}
 
