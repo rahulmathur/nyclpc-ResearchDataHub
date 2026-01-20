@@ -196,9 +196,9 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
 
     (async () => {
       try {
-        const response = await axios.get('/api/table/sat_site_geometry');
+        const response = await axios.get('/api/table/sat_site_geometry', { params: { limit: 5000 } });
         const allGeoms = response.data?.data || [];
-        const siteGeoms = allGeoms.filter(g => selectedSites.includes(g.hub_site_id));
+        const siteGeoms = allGeoms.filter(g => g && selectedSites.some(id => String(id) === String(g.hub_site_id)));
 
         window.require(['esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
           (Graphic, Polygon, Polyline, Point) => {
@@ -231,7 +231,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
 
             siteGeoms.forEach((geom) => {
               try {
-                let geomData = geom.shape;
+                let geomData = geom.geometry ?? geom.shape ?? geom.geom ?? geom.the_geom;
                 if (typeof geomData === 'string') geomData = JSON.parse(geomData);
                 if (!geomData || !geomData.type) return;
 

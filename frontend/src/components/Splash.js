@@ -12,11 +12,11 @@ export default function Splash({ onCreateProject, onViewProjects, onViewSites })
       try {
         const [projectsRes, sitesRes] = await Promise.all([
           axios.get('/api/projects').catch(() => ({ data: { data: [] } })),
-          axios.get('/api/sites').catch(() => ({ data: { data: [] } }))
+          axios.get('/api/sites', { params: { limit: 0 } }).catch(() => ({ data: { data: [], total: 0 } }))
         ]);
         setStats({
           projects: projectsRes.data?.data?.length || 0,
-          sites: sitesRes.data?.data?.length || 0,
+          sites: sitesRes.data?.total ?? 0,
           loading: false
         });
       } catch (error) {
