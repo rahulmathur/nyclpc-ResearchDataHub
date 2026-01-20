@@ -1,0 +1,5 @@
+# Cloudflare Pages – fixes "process is not defined" in Functions worker
+# https://developers.cloudflare.com/workers/runtime-apis/nodejs/process/
+name = "nyclpc-research-hub-frontend"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]

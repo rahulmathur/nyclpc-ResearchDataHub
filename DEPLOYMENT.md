@@ -125,6 +125,48 @@ npm start            # http://localhost:3000, proxies to http://localhost:5000
 ```
 
 ## Troubleshooting
-- **DB connection errors:** verify env vars in Elastic Beanstalk console. Check RDS security group allows Beanstalk instance. For RDS, ensure `ca_certificate_aws-rds.pem` is present if SSL verification is enabled.
-- **Frontend cannot reach backend:** confirm `REACT_APP_API_URL` on Cloudflare Pages points to the correct Beanstalk domain and check CORS (should be allowed by default).
-- **Migrations:** ensure staging RDS user can drop/recreate objects and both `.env.development` / `.env.staging` are valid.
+
+### DB connection errors
+- Verify env vars in Elastic Beanstalk console. Check RDS security group allows Beanstalk instance. For RDS, ensure `ca_certificate_aws-rds.pem` is present if SSL verification is enabled.
+
+### Frontend cannot reach backend
+- Confirm `REACT_APP_API_URL` on Cloudflare Pages points to the correct Beanstalk domain and check CORS (should be allowed by default). If using the `functions/api/[[path]].js` proxy, set `BACKEND_URL` in Cloudflare Pages environment variables instead.
+
+### Migrations
+- Ensure staging RDS user can drop/recreate objects and both `.env.development` / `.env.staging` are valid.
+
+### Cloudflare Pages: "The deployment failed due to an internal error"
+
+This is a generic Cloudflare error. Try in order:
+
+1. **Check the build log**  
+   Dashboard → your Pages project → **Deployments** → failed deploy → **View build log**. See whether it fails during **Cloning**, **Installing dependencies**, **Building**, or **Deploying**.
+
+2. **Confirm build settings** (Root = `frontend`):
+   - **Build command:** `npm run build` or `npm ci && npm run build`
+   - **Build output directory:** `build`
+   - **Root directory (Project root):** `frontend`
+
+3. **Pin Node.js**  
+   - `frontend/.nvmrc` with `18` is in the repo; Cloudflare should use it when root is `frontend`.  
+   - Or in Pages → **Settings** → **Environment variables**, add `NODE_VERSION` = `18` (Production and Preview).
+
+4. **Retry and clear cache**  
+   - **Retry deployment** from the Deployments tab.  
+   - If it still fails: **Settings** → **Builds & deployments** → **Build configuration** → **Clear build cache**, then redeploy.
+
+5. **Use a simpler build command**  
+   If `npm install && npm run build` fails, try `npm run build` only (Cloudflare may run `npm install` by default for some presets).
+
+6. **Git / integration**  
+   - Ensure the GitHub (or GitLab) connection is OK: **Settings** → **Builds & deployments** → **Build configuration** → **Connected repository**.  
+   - Reconnect or re-authorize if needed.
+
+7. **Build locally and deploy output (workaround)**  
+   If the Pages build always fails (e.g. memory or env limits):
+   - Locally: `cd frontend && npm ci && npm run build`
+   - Deploy the `frontend/build` folder via **Direct Upload** (Pages → **Create project** → **Direct Upload**) or `wrangler pages deploy frontend/build --project-name=your-pages-project`.  
+   - Note: with Direct Upload, the `functions/` API proxy will **not** be deployed; you’d need to call the Beanstalk URL from the frontend (e.g. via `REACT_APP_API_URL`) or deploy Functions separately.
+
+8. **Contact Cloudflare**  
+   If it still fails, use the **deployment ID** (in the deploy URL or log) and contact Cloudflare Support.
