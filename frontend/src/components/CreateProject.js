@@ -26,6 +26,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
   const [selectedSites, setSelectedSites] = useState([]);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [selectedAttributes, setSelectedAttributes] = useState([]);
+  const [mapReady, setMapReady] = useState(false);
 
   const mapRef = useRef();
   const mapViewRef = useRef();
@@ -50,7 +51,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
           const point = view.toMap({ x: event.x, y: event.y });
           setPosition({ lat: point.latitude, lng: point.longitude });
         });
-        view.when(() => {}).catch((err) => console.error('Map view error:', err));
+        view.when(() => setMapReady(true)).catch((err) => console.error('Map view error:', err));
       } catch (err) { console.error('Error creating map:', err); }
     };
 
@@ -167,9 +168,9 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     if (!project?.id) return;
     (async () => {
       try {
-        const response = await axios.get('/api/table/lnk_project_site');
-        const projectSites = response.data?.data?.filter(ps => ps.hub_project_id === project.id) || [];
-        setSelectedSites(projectSites.map(ps => ps.hub_site_id));
+        const response = await axios.get(`/api/projects/${project.id}/sites`);
+        const sites = response.data?.data || [];
+        setSelectedSites(sites.map(s => s.hub_site_id || s.id));
       } catch (err) {
         console.error('Failed to load project sites:', err);
       }
@@ -190,18 +191,18 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     })();
   }, [project?.id]);
 
-  // Load and display site geometries on map when selected sites change
+  // Load and display site geometries on map when selected sites change or map becomes ready
   useEffect(() => {
-    if (!selectedSites.length || !mapViewRef.current || !window.require) return;
+    if (!selectedSites.length || !mapReady || !mapViewRef.current || !window.require) return;
 
     (async () => {
       try {
-        const response = await axios.get('/api/table/sat_site_geometry', { params: { limit: 5000 } });
-        const allGeoms = response.data?.data || [];
-        const siteGeoms = allGeoms.filter(g => g && selectedSites.some(id => String(id) === String(g.hub_site_id)));
+        const response = await axios.post('/api/sites/geometries', { siteIds: selectedSites });
+        const siteGeoms = response.data?.data || [];
 
         window.require(['esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
           (Graphic, Polygon, Polyline, Point) => {
+            if (!mapViewRef.current) return;
             mapViewRef.current.graphics.removeAll();
             let bounds = null;
 
@@ -277,7 +278,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
         console.error('Failed to load site geometries:', err);
       }
     })();
-  }, [selectedSites]);
+  }, [selectedSites, mapReady]);
 
   const setPosition = ({ lat, lng }) => {
     setForm(prev => ({ ...prev, latitude: lat, longitude: lng }));

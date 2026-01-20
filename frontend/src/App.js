@@ -6,13 +6,17 @@ import TableView from './components/TableView';
 import QueryEditor from './components/QueryEditor';
 import ConnectionStatus from './components/ConnectionStatus';
 import BrandHeader from './components/BrandHeader';
+import PreLoginSplash from './components/PreLoginSplash';
 import Splash from './components/Splash';
 import CreateProject from './components/CreateProject';
 import ProjectsList from './components/ProjectsList';
 import SitesList from './components/SitesList';
 import SiteDetail from './components/SiteDetail';
 
+const AUTH_STORAGE_KEY = 'lpc_rdh_authenticated';
+
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem(AUTH_STORAGE_KEY) === 'true');
   const [tables, setTables] = useState([]);
   const [selectedTable, setSelectedTable] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState(null);
@@ -28,9 +32,11 @@ function App() {
   const [previousView, setPreviousView] = useState(null);
 
   useEffect(() => {
-    checkConnection();
-    loadTables();
-  }, []);
+    if (isLoggedIn) {
+      checkConnection();
+      loadTables();
+    }
+  }, [isLoggedIn]);
 
   const checkConnection = async () => {
     try {
@@ -79,6 +85,21 @@ function App() {
     setActiveView(view);
     setMobileMenuOpen(false);
   };
+
+  const handleLoginSuccess = () => setIsLoggedIn(true);
+
+  const handleLogout = () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setIsLoggedIn(false);
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="app">
+        <PreLoginSplash onLoginSuccess={handleLoginSuccess} />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -143,6 +164,10 @@ function App() {
           </Menu.Menu>
 
           <Menu.Menu position="right" className="desktop-nav">
+            <Menu.Item onClick={handleLogout} className="nav-item">
+              <Icon name="sign out" />
+              <span className="nav-text">Log out</span>
+            </Menu.Item>
             <Menu.Item className="connection-status-item">
               <ConnectionStatus status={connectionStatus} />
             </Menu.Item>
@@ -215,6 +240,10 @@ function App() {
           </Menu.Item>
           <Menu.Item className="mobile-connection-status">
             <ConnectionStatus status={connectionStatus} />
+          </Menu.Item>
+          <Menu.Item onClick={handleLogout}>
+            <Icon name="sign out" />
+            Log out
           </Menu.Item>
         </Sidebar>
 

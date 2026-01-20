@@ -107,24 +107,29 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                 // Check if we haven't already loaded this reference table
                 if (!refs[refTableName]) {
                   try {
-                    const refRes = await axios.get(`/api/table/${refTableName}`);
+                    const refRes = await axios.get(`/api/table/${refTableName}`, { params: { limit: 5000 } });
                     const refData = refRes.data?.data || [];
-                    
-                    // Create a lookup map: id -> name
+                    const prefix = column.substring(0, column.length - 3); // e.g. 'material', 'style', 'type', 'use'
+                    const idCol = column;
+
+                    // Resolve name column: ref tables use {prefix}_nm (e.g. material_nm, style_nm, type_nm, use_nm)
+                    // or sometimes {prefix}_name / 'name' — pick first that exists in ref data
+                    const candidateNameCols = [prefix + '_nm', prefix + '_name', 'name'];
+                    const firstRow = refData[0];
+                    const refKeys = firstRow ? Object.keys(firstRow) : [];
+                    const nameCol = candidateNameCols.find(k => refKeys.includes(k)) || (prefix + '_nm');
+
                     const lookup = {};
                     refData.forEach(row => {
-                      const idCol = column; // e.g., 'material_id'
-                      const nameCol = column.substring(0, column.length - 3) + '_nm'; // e.g., 'material_nm'
-                      if (row[idCol] && row[nameCol]) {
+                      if (row[idCol] != null && row[nameCol] != null) {
                         lookup[row[idCol]] = row[nameCol];
                       }
                     });
-                    
+
                     if (mounted) {
                       refs[refTableName] = lookup;
                     }
                   } catch (e) {
-                    // Reference table doesn't exist, skip
                     if (mounted) {
                       refs[refTableName] = {};
                     }
@@ -355,7 +360,10 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                   {tableName.replace(/_/g, ' ')}
                   <span className="site-detail-table-meta">{satelliteTables[tableName]?.rows?.length ?? 0} record{(satelliteTables[tableName]?.rows?.length ?? 0) !== 1 ? 's' : ''}</span>
                 </button>
-                {expandedTables.includes(tableName) && satelliteTables[tableName] && (
+                {expandedTables.includes(tableName) && satelliteTables[tableName] && (() => {
+                  const displayCols = satelliteTables[tableName].columns.filter(c => c !== 'hub_site_id' && c !== 'sort_order');
+                  const sortedRows = [...satelliteTables[tableName].rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                  return (
                   <div className="site-detail-table-inner">
                     <Table celled compact>
                       <Table.Header>
@@ -366,18 +374,18 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                               <Table.HeaderCell>Attribute Value</Table.HeaderCell>
                             </>
                           ) : (
-                            satelliteTables[tableName].columns.map(col => (
-                              <Table.HeaderCell key={col}>{col.replace(/_/g, ' ')}</Table.HeaderCell>
-                            ))
+                            displayCols.map(col => {
+                              const label = col.endsWith('_id')
+                                ? (col.substring(0, col.length - 3).charAt(0).toUpperCase() + col.substring(0, col.length - 3).slice(1))
+                                : col.replace(/_/g, ' ');
+                              return <Table.HeaderCell key={col}>{label}</Table.HeaderCell>;
+                            })
                           )}
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
                         {satelliteTables[tableName].rows.length > 0 ? (
-                          (tableName === 'sat_site_material' || tableName === 'sat_site_materials'
-                            ? [...satelliteTables[tableName].rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-                            : satelliteTables[tableName].rows
-                          ).map((row, idx) => {
+                          sortedRows.map((row, idx) => {
                             if (tableName === 'sat_site_attributes') {
                               const attrInfo = refAttributesLookup[row.attribute_id];
                               if (!attrInfo) return null;
@@ -392,9 +400,9 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                             }
                             return (
                               <Table.Row key={idx}>
-                                {satelliteTables[tableName].columns.map(col => {
+                                {displayCols.map(col => {
                                   let displayValue = row[col];
-                                  if (col.endsWith('_id') && col !== 'hub_site_id' && row[col]) {
+                                  if (col.endsWith('_id') && row[col]) {
                                     const refTableName = 'ref_' + col.substring(0, col.length - 3);
                                     const lookup = refTables[refTableName] || {};
                                     displayValue = lookup[row[col]] || row[col];
@@ -406,7 +414,7 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                           })
                         ) : (
                           <Table.Row>
-                            <Table.Cell colSpan={tableName === 'sat_site_attributes' ? 2 : satelliteTables[tableName].columns.length} textAlign="center">
+                            <Table.Cell colSpan={tableName === 'sat_site_attributes' ? 2 : displayCols.length} textAlign="center">
                               No data
                             </Table.Cell>
                           </Table.Row>
@@ -414,7 +422,8 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                       </Table.Body>
                     </Table>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             ))}
           </div>
