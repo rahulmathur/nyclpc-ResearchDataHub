@@ -1,0 +1,130 @@
+---
+description: Rules for working with the Node.js/Express backend
+globs: backend/**/*
+---
+
+# Backend Development Rules
+
+## Overview
+The backend is a Node.js Express server that provides a REST API for the Research Data Hub. It connects to PostgreSQL with PostGIS for spatial data.
+
+## File Organization
+
+- `server.js` - Main entry point, Express setup, route registration
+- `controllers/` - Route handlers organized by domain
+- `db/` - Database connection pool and utilities
+- `scripts/` - CLI utilities for seeding, migration, smoke tests
+
+## Creating New Endpoints
+
+### In server.js
+```javascript
+const myController = require('./controllers/myController');
+app.get('/api/resource', myController.list);
+app.post('/api/resource', myController.create);
+```
+
+### Controller Pattern
+```javascript
+const { getPool } = require('../db');
+const { validateTableName, getPrimaryKey } = require('../db/utils');
+
+async function myHandler(req, res) {
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    
+    const result = await getPool().query('SELECT * FROM table WHERE id = $1', [req.params.id]);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+```
+
+## Database Query Patterns
+
+### Always Use Parameterized Queries for Values
+```javascript
+// GOOD
+await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+
+// BAD - SQL injection risk
+await pool.query(`SELECT * FROM users WHERE email = '${email}'`);
+```
+
+### Table/Column Names
+Table and column names cannot be parameterized. Use the validation utility:
+```javascript
+if (!validateTableName(tableName)) {
+  return res.status(400).json({ error: 'Invalid table name' });
+}
+// validateTableName allows only alphanumeric and underscore: /^[a-zA-Z0-9_]+$/
+```
+
+### Getting Primary Keys
+Tables have custom primary key names. Use:
+```javascript
+const pk = await getPrimaryKey(tableName) || 'id';
+```
+
+### Enum Validation
+PostgreSQL enum columns need validation before insert/update:
+```javascript
+const enumMap = await getEnumMap(tableName);
+for (const [k, v] of Object.entries(data)) {
+  if (v == null) continue;
+  const allowed = enumMap[k];
+  if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
+    return res.status(400).json({ error: `Invalid value for ${k}` });
+  }
+}
+```
+
+## Response Format
+
+### Success Responses
+```javascript
+res.json({ success: true, data: result.rows });
+res.json({ success: true, data: result.rows, count: total });
+res.json({ success: true, data: result.rows[0] }); // Single item
+```
+
+### Error Responses
+```javascript
+res.status(400).json({ error: 'Validation error message' });
+res.status(404).json({ error: 'Resource not found' });
+res.status(500).json({ error: error.message });
+```
+
+## Environment Variables
+
+Required in `.env`:
+```
+PORT=5001
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=database_name
+DB_USER=username
+DB_PASSWORD=password
+```
+
+## SSL Configuration
+
+The server auto-configures SSL based on host:
+- Railway hosts: Self-signed certs (`rejectUnauthorized: false`)
+- AWS RDS: Uses CA certificate file if present (`ca_certificate_aws-rds.pem`)
+
+## PostGIS / Geometry
+
+### Returning Geometry as GeoJSON
+```javascript
+const result = await pool.query(`
+  SELECT hub_site_id,
+    ST_AsGeoJSON(ST_Transform(geom, 4326))::text AS geometry
+  FROM sat_site_geometry WHERE hub_site_id = $1
+`, [siteId]);
+```
+
+### Coordinate Systems
+- Storage: Often EPSG:2263 (NYC State Plane)
+- Output: Transform to EPSG:4326 (WGS84) for web maps

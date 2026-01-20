@@ -361,16 +361,42 @@ function groupAndSet(rows, resultMap, valueKey) {
 }
 
 // Get all available sites (for adding to projects)
+// Query params: limit (default 100, max 500, 0 = count only), offset (default 0), q (optional search on hub_site_id)
 async function getAllSites(req, res) {
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-    const result = await getPool().query(`
-      SELECT hub_site_id
-      FROM hub_sites
-      ORDER BY hub_site_id
-    `);
-    const sites = result.rows.map(r => ({ ...r, id: r.hub_site_id }));
-    res.json({ success: true, data: sites });
+    const pool = getPool();
+    const limit = Math.min(Math.max(0, parseInt(req.query.limit, 10) || 100), 500);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const q = (req.query.q || '').trim();
+
+    const hasSearch = q.length > 0;
+
+    const searchPattern = `%${q}%`;
+    if (limit === 0) {
+      // Count-only request (e.g. for splash stats)
+      const countQuery = hasSearch
+        ? `SELECT COUNT(*) AS total FROM hub_sites WHERE hub_site_id::text ILIKE $1`
+        : `SELECT COUNT(*) AS total FROM hub_sites`;
+      const countParams = hasSearch ? [searchPattern] : [];
+      const countResult = await pool.query(countQuery, countParams);
+      const total = parseInt(countResult.rows[0].total, 10);
+      return res.json({ success: true, data: [], total });
+    }
+
+    const selectQuery = hasSearch
+      ? `SELECT hub_site_id, COUNT(*) OVER() AS _total FROM hub_sites
+         WHERE hub_site_id::text ILIKE $1
+         ORDER BY hub_site_id
+         LIMIT $2 OFFSET $3`
+      : `SELECT hub_site_id, COUNT(*) OVER() AS _total FROM hub_sites
+         ORDER BY hub_site_id
+         LIMIT $1 OFFSET $2`;
+    const selectParams = hasSearch ? [searchPattern, limit, offset] : [limit, offset];
+    const result = await pool.query(selectQuery, selectParams);
+    const total = result.rows[0] ? parseInt(result.rows[0]._total, 10) : 0;
+    const sites = result.rows.map(r => ({ hub_site_id: r.hub_site_id, id: r.hub_site_id }));
+    res.json({ success: true, data: sites, total });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
