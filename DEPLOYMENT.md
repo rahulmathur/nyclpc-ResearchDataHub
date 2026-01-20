@@ -6,10 +6,13 @@
 - **Development:** unchanged; use `.env.development` locally and `npm run dev` / `npm run dev:staging` for local testing.
 
 ## Prerequisites
-- Node.js 18+, npm
+- **Development:** Node.js 18.x
+- **Staging:** Node.js 20.x
 - PostgreSQL client tools (`psql`, `pg_dump`)
 - AWS account with Elastic Beanstalk and RDS access
 - Cloudflare account
+
+**Note:** Development branch uses Node 18, staging branch uses Node 20. Use `nvm use` or check `.nvmrc` file in backend directory.
 
 ## Environment Configuration
 Create env files (copy from `.env.example`):
@@ -44,7 +47,8 @@ pip install awsebcli
 cd /path/to/nyclpc-ResearchDataHub
 
 # Initialize Elastic Beanstalk
-eb init -p "Node.js 18" nyclpc-research-hub-backend --region us-east-1
+# Note: Staging uses Node.js 20
+eb init -p "Node.js 20" nyclpc-research-hub-backend --region us-east-1
 ```
 
 ### 2. Create Environment

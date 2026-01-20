@@ -1,0 +1,240 @@
+# NYC LPC Research Data Hub - Cursor AI Rules
+
+This file provides context and instructions for AI coding assistants working on this codebase.
+
+## Project Overview
+
+The **NYC LPC Research Data Hub** is a full-stack web application for the NYC Landmarks Preservation Commission (LPC). It manages research projects and historic sites data with PostgreSQL/PostGIS spatial database support.
+
+### Architecture
+- **Frontend**: React 18 SPA in `frontend/`
+- **Backend**: Node.js + Express REST API in `backend/`
+- **Database**: PostgreSQL with PostGIS extension for geospatial data
+- **Deployment**: AWS Elastic Beanstalk (backend), static hosting (frontend)
+
+## Tech Stack
+
+### Frontend (`frontend/`)
+- React 18 with functional components and hooks
+- Semantic UI React for components (`semantic-ui-react`, `semantic-ui-css`)
+- ArcGIS JavaScript API for mapping (`@arcgis/core` + AMD loader)
+- Axios for HTTP requests (proxy configured to backend at `localhost:5001`)
+- Custom CSS with CSS variables for theming
+
+### Backend (`backend/`)
+- Node.js 18.x (see `.node-version` and `.nvmrc`)
+- Express.js for REST API
+- PostgreSQL via `pg` package
+- PostGIS for spatial queries
+- dotenv for environment configuration
+
+## Key Conventions
+
+### API Response Format
+All API endpoints return consistent JSON shapes:
+```javascript
+// Success
+{ success: true, data: [...], count: 123 }
+
+// Error
+{ error: "Error message" }
+```
+
+### Database Tables & Primary Keys
+- **`hub_projects`**: Uses `hub_project_id` as primary key
+- **`hub_sites`**: Uses `hub_site_id` as primary key
+- **`lnk_project_site`**: Junction table linking projects to sites
+- **`sat_*` tables**: Satellite tables for site attributes (e.g., `sat_site_geometry`, `sat_site_bbl`)
+- **`ref_*` tables**: Reference/lookup tables (e.g., `ref_attributes`, `ref_material`)
+
+The backend normalizes responses to include an `id` property mapped from the actual primary key (e.g., `id: hub_project_id`) so frontend components can use `row.id` consistently.
+
+### SQL Parameterization
+- PostgreSQL uses `$1, $2, $3...` placeholder syntax
+- Table/column names are interpolated directly (sanitized via `validateTableName()`)
+- Always use parameterized queries for values to prevent SQL injection
+
+### Geometry Handling
+- Geometry columns use PostGIS types
+- API returns geometry as GeoJSON using `ST_AsGeoJSON()`
+- Frontend handles coordinate transformations for display (EPSG:2263 → WGS84)
+
+## File Structure
+
+```
+├── backend/
+│   ├── server.js           # Main Express app, routes, DB init
+│   ├── controllers/        # Route handlers
+│   │   ├── projectsController.js   # Projects & sites CRUD
+│   │   ├── tableController.js      # Generic table CRUD
+│   │   ├── columnsController.js    # Schema introspection
+│   │   └── queryController.js      # Raw SQL execution
+│   ├── db/
+│   │   ├── index.js        # Pool singleton
+│   │   └── utils.js        # getPrimaryKey, getEnumMap, validateTableName
+│   └── scripts/            # Utility scripts (seed, migrate, smoke tests)
+│
+├── frontend/
+│   ├── src/
+│   │   ├── App.js          # Main router/navigation
+│   │   ├── components/     # React components
+│   │   │   ├── ProjectsList.js      # Projects list view
+│   │   │   ├── CreateProject.js     # Project create/edit form + map
+│   │   │   ├── SitesList.js         # Sites list view
+│   │   │   ├── SiteDetail.js        # Site detail with geometry map
+│   │   │   ├── TableView.js         # Generic table CRUD UI
+│   │   │   ├── QueryEditor.js       # SQL query interface
+│   │   │   ├── Splash.js            # Landing page
+│   │   │   └── BrandHeader.js       # LPC branded header
+│   │   └── assets/         # Static images, logos
+│   └── public/             # index.html, favicons
+```
+
+## API Endpoints
+
+### Health & Tables
+- `GET /api/health` - Connection status
+- `GET /api/tables` - List all tables
+- `GET /api/columns/:tableName` - Get column metadata with enum values
+
+### Generic Table CRUD
+- `GET /api/table/:tableName?limit=50&offset=0&q=search` - Paginated data with optional search
+- `POST /api/table/:tableName` - Insert record
+- `PUT /api/table/:tableName/:id` - Update record
+- `DELETE /api/table/:tableName/:id` - Delete record
+
+### Projects
+- `GET /api/projects` - List all projects (normalized `id`)
+- `POST /api/projects` - Create project
+- `PUT /api/projects/:projectId` - Update project
+- `DELETE /api/projects/:projectId` - Delete project
+- `GET /api/projects/:projectId/sites` - Get project's linked sites
+- `PUT /api/projects/:projectId/sites` - Replace project's sites (body: `{ siteIds: [] }`)
+- `GET /api/projects/:projectId/site-attributes` - Get project's selected attributes
+- `PUT /api/projects/:projectId/site-attributes` - Update attributes (body: `{ attributeIds: [] }`)
+- `GET /api/projects/:projectId/sites-with-attributes` - Sites with attribute values
+
+### Sites
+- `GET /api/sites` - List all sites
+- `GET /api/sites/:siteId/geometry` - Get site geometry as GeoJSON
+
+### Query
+- `POST /api/query` - Execute raw SQL (body: `{ query: string, params?: [] }`)
+
+## Development Workflow
+
+### Setup
+```bash
+# Backend
+cd backend
+npm install
+cp .env.example .env  # Configure DB credentials
+npm run dev           # Uses .env.development
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm start            # Runs on :3000, proxies to :5001
+```
+
+### Environment Files
+- `.env.development` - Local development DB
+- `.env.staging` - Staging/test DB (AWS RDS)
+- `.env.example` - Template with required keys
+
+### Scripts
+- `npm run dev` - Backend with nodemon (uses .env.development)
+- `npm run dev:staging` - Backend against staging DB
+- `npm run smoke` - Quick API smoke test (requires `jq`)
+- `npm run seed` - Seed database with sample data
+
+## Component Patterns
+
+### State Management
+- Use React hooks (`useState`, `useEffect`, `useRef`)
+- No Redux/global state - state is component-local or passed via props
+- API calls use Axios with relative URLs (proxy handles routing)
+
+### Forms
+- Schema-driven: fetch column metadata via `/api/columns/:table`
+- Enum fields render as `<Form.Select>` dropdowns
+- Validation is client-side with field-level error messages
+
+### Maps (ArcGIS)
+- Load via AMD pattern: `window.require(['esri/Map', ...], callback)`
+- Use `useRef` for map container and view instance
+- Clean up in `useEffect` return function
+- Handle multiple geometry types: Point, LineString, Polygon, MultiPolygon
+
+### Error Handling
+- API errors: `err.response?.data?.error`
+- Display via Semantic UI `<Message negative>`
+- Log to console for debugging
+
+## Styling Conventions
+
+### CSS Variables (defined in `App.css`, `brand.css`)
+```css
+--brand-primary: #0071bc;    /* NYC blue */
+--brand-secondary: #e27728;  /* Orange accent */
+--bg-primary: #1a1a2e;       /* Dark backgrounds */
+--text-primary: #ffffff;
+--text-dim: #888;
+```
+
+### Component Styles
+- One CSS file per component: `ComponentName.css`
+- Use Semantic UI classes where possible
+- Custom overrides use BEM-like naming
+
+## Security Notes
+
+### DO NOT
+- Commit `.env` files (use `.env.example` as template)
+- Expose database credentials in frontend
+- Trust user input for table/column names without validation
+
+### DO
+- Use parameterized queries for all user values
+- Validate table names with `validateTableName()` regex
+- Check `getPool()` returns valid connection before queries
+- Return consistent error shapes for frontend handling
+
+## Common Gotchas
+
+1. **Primary Keys**: Tables use custom PK names (`hub_project_id`, not `id`). Backend normalizes to `id` in responses.
+
+2. **Geometry Columns**: Stored as PostGIS types, converted to GeoJSON in API. Frontend parses JSON strings.
+
+3. **ArcGIS Loading**: Uses AMD loader, not ES modules. Check `window.require` exists before using.
+
+4. **Port Conflicts**: Backend uses 5001 (not 5000) to avoid macOS AirPlay conflict.
+
+5. **Enum Validation**: Backend validates enum fields against actual PostgreSQL enum values.
+
+6. **Fast Count**: Large tables use `fastCount=true` for estimated row counts via `pg_class.reltuples`.
+
+## Testing
+
+- No automated test suite currently
+- Smoke tests: `cd backend && npm run smoke`
+- Manual QA checklist in README.md
+
+## Adding Features
+
+### New API Endpoint
+1. Add route in `backend/server.js` or create new controller
+2. Follow response format: `{ success: true, data: ... }`
+3. Use `getPool()` for DB connection
+4. Validate inputs, parameterize queries
+
+### New React Component
+1. Create in `frontend/src/components/`
+2. Add corresponding CSS file
+3. Use Semantic UI components
+4. Connect to API via Axios with relative URLs
+
+### New Database Table
+1. Frontend will auto-discover via `/api/tables`
+2. Generic CRUD available via `/api/table/:name`
+3. Add custom controller if special logic needed

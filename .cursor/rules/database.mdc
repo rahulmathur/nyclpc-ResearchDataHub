@@ -1,0 +1,164 @@
+---
+description: Database schema and query patterns
+globs: backend/**/*
+alwaysApply: false
+---
+
+# Database Schema Reference
+
+## Core Tables
+
+### hub_projects
+Main projects table.
+- `hub_project_id` (PK) - Integer primary key
+- `name` - Project name
+- `description` - Project description
+- `address` - Address text
+- `borough` - NYC borough (enum)
+- `latitude`, `longitude` - Coordinates
+- Additional dynamic fields based on schema
+
+### hub_sites
+Main sites table.
+- `hub_site_id` (PK) - Integer primary key
+- Site-specific fields vary by installation
+
+### lnk_project_site
+Junction table linking projects to sites (many-to-many).
+- `hub_project_id` (FK)
+- `hub_site_id` (FK)
+
+## Satellite Tables (sat_*)
+
+Store additional attributes for sites:
+
+### sat_site_geometry
+- `hub_site_id` (FK)
+- `geom` or `shape` - PostGIS geometry column
+
+### sat_site_bbl
+- `hub_site_id` (FK)
+- `bbl` - NYC Borough-Block-Lot identifier
+- `start_dt` - Effective date
+
+### sat_site_attributes
+Generic attribute storage:
+- `hub_site_id` (FK)
+- `attribute_id` (FK to ref_attributes)
+- `attribute_value_text`
+- `attribute_value_int`
+- `attribute_value_number`
+- `attribute_value_ts` (timestamp)
+- `start_dt`
+
+### sat_project_site_attributes
+Which attributes are selected for a project:
+- `sat_project_site_attributes_id` (PK)
+- `hub_project_id` (FK)
+- `attribute_id` (FK)
+- `sort_order`
+- `create_dt`
+
+### Other Satellite Tables
+- `sat_site_material` - Site materials (FK to ref_material)
+- `sat_site_style` - Architectural styles (FK to ref_style)
+- `sat_site_type` - Building types (FK to ref_type)
+- `sat_site_use` - Building uses (FK to ref_use)
+- `sat_site_alteration` - Alterations (FK to ref_alteration)
+- `sat_site_built` - Construction dates
+
+## Reference Tables (ref_*)
+
+Lookup/enumeration tables:
+
+### ref_attributes
+Defines available site attributes.
+- `attribute_id` (PK)
+- `attribute_nm` - Short name
+- `attribute_text` - Display text
+- `attribute_desc` - Description
+- `attribute_type` - Data type: 'int', 'txt', 'num', 'ts', 'tbl', 'refs', 'ref'
+- `attribute_p_or_s` - 'P' for project, 'S' for site
+
+### Other Reference Tables
+- `ref_material` - Material types (`material_id`, `material_nm`)
+- `ref_style` - Architectural styles (`style_id`, `style_nm`)
+- `ref_type` - Building types (`type_id`, `type_nm`)
+- `ref_use` - Building uses (`use_id`, `use_nm`)
+- `ref_alteration` - Alteration types (`alteration_id`, `alteration_nm`)
+
+## Query Patterns
+
+### List Projects with ID Normalization
+```sql
+SELECT *, hub_project_id AS id FROM hub_projects ORDER BY hub_project_id;
+```
+
+### Get Sites for Project
+```sql
+SELECT s.*
+FROM hub_sites s
+JOIN lnk_project_site l ON s.hub_site_id = l.hub_site_id
+WHERE l.hub_project_id = $1
+ORDER BY s.hub_site_id;
+```
+
+### Get Site Geometry as GeoJSON
+```sql
+SELECT hub_site_id,
+  CASE WHEN ST_SRID(geom) IS NOT NULL AND ST_SRID(geom) > 0
+    THEN ST_AsGeoJSON(ST_Transform(geom, 4326))::text
+    ELSE ST_AsGeoJSON(geom)::text
+  END AS geometry
+FROM sat_site_geometry WHERE hub_site_id = $1;
+```
+
+### Get Enum Values for Column
+```sql
+SELECT e.enumlabel 
+FROM pg_type t 
+JOIN pg_enum e ON t.oid = e.enumtypid 
+WHERE t.typname = $1 
+ORDER BY e.enumsortorder;
+```
+
+### Get Primary Key for Table
+```sql
+SELECT a.attname as column_name
+FROM pg_index i
+JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+WHERE i.indrelid = $1::regclass AND i.indisprimary;
+```
+
+### Fast Row Count (Estimated)
+```sql
+SELECT reltuples::bigint AS estimate 
+FROM pg_class 
+WHERE oid = 'public.table_name'::regclass;
+```
+
+## Attribute Value Lookup
+
+Attributes have different storage based on `attribute_type`:
+
+| Type | Storage Table | Value Column |
+|------|---------------|--------------|
+| int | sat_site_attributes | attribute_value_int |
+| txt | sat_site_attributes | attribute_value_text |
+| num | sat_site_attributes | attribute_value_number |
+| ts | sat_site_attributes | attribute_value_ts |
+| tbl:bbl | sat_site_bbl | bbl |
+| tbl:built | sat_site_built | date_combo |
+| tbl:alteration | sat_site_alteration + ref_alteration | alteration_nm |
+| refs:material | sat_site_material + ref_material | material_nm |
+| refs:style | sat_site_style + ref_style | style_nm |
+| refs:type | sat_site_type + ref_type | type_nm |
+| refs:use | sat_site_use + ref_use | use_nm |
+
+## PostGIS Functions
+
+Common functions used:
+- `ST_AsGeoJSON(geom)` - Convert to GeoJSON
+- `ST_Transform(geom, srid)` - Reproject coordinates
+- `ST_SRID(geom)` - Get coordinate system ID
+- `ST_Centroid(geom)` - Get center point

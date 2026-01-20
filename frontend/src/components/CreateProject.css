@@ -5,9 +5,23 @@
 /* ArcGIS Map Styles */
 .esri-view {
   border-radius: 4px;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.esri-view-root {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .esri-ui {
   font-family: inherit;
+}
+
+/* Ensure map container is visible */
+div[ref="mapRef"],
+div[data-ref="mapRef"] {
+  min-height: 360px;
+  background: var(--bg-secondary);
 }
 

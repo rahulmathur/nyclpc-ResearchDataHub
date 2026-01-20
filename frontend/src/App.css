@@ -41,11 +41,283 @@ body {
   --lpc-gold: #d39e00;
 }
 
-.logo-section { display:flex; align-items:center; gap:0.75rem; }
-.lpc-logo { width: 56px; height: auto; display:block; }
-.app-title { font-size: 1.45rem; font-weight:700; }
-.agency-link { display:block; font-size: 0.85rem; color: var(--text-dim); text-decoration: none; }
-.agency-link:hover { color: var(--lpc-blue); text-decoration: underline; }
+/* Navigation Styles */
+.app-header {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%) !important;
+  border-bottom: 2px solid var(--border-color) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+  padding: 0 !important;
+  min-height: 70px !important;
+}
+
+.nav-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem !important;
+}
+
+/* Desktop Navigation */
+.desktop-nav {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-item {
+  padding: 0.75rem 1.25rem !important;
+  margin: 0 0.25rem !important;
+  border-radius: 8px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 255, 136, 0.15) !important;
+}
+
+.nav-item.active {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.15) 0%, rgba(0, 204, 255, 0.1) 100%) !important;
+  color: var(--accent-primary) !important;
+  border: 1px solid rgba(0, 255, 136, 0.3) !important;
+}
+
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  border-radius: 2px 2px 0 0;
+}
+
+.nav-item i.icon {
+  margin: 0 !important;
+  opacity: 0.9;
+  transition: all 0.3s ease;
+}
+
+.nav-item:hover i.icon,
+.nav-item.active i.icon {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.nav-text {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.utilities-dropdown {
+  position: relative !important;
+}
+
+/* Override Semantic UI dropdown menu styles */
+.ui.dropdown.utilities-dropdown .menu,
+.ui.dropdown.utilities-dropdown .ui.menu,
+.utilities-dropdown .ui.menu,
+.utilities-dropdown .menu {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  border-radius: 8px !important;
+  margin-top: 0.5rem !important;
+  padding: 0.5rem 0 !important;
+  z-index: 1001 !important;
+  min-width: 200px !important;
+}
+
+/* Override inverted menu styles that might hide text */
+.ui.inverted.menu .ui.dropdown.utilities-dropdown .menu .item,
+.ui.inverted.menu .utilities-dropdown .menu .item,
+.ui.inverted.menu .utilities-dropdown .ui.menu .item {
+  color: var(--text-primary) !important;
+}
+
+.ui.inverted.menu .ui.dropdown.utilities-dropdown .menu .item *,
+.ui.inverted.menu .utilities-dropdown .menu .item *,
+.ui.inverted.menu .utilities-dropdown .ui.menu .item * {
+  color: var(--text-primary) !important;
+}
+
+/* Ensure dropdown menu is visible when active */
+.ui.dropdown.utilities-dropdown.active .menu,
+.ui.dropdown.utilities-dropdown.active .ui.menu,
+.ui.dropdown.utilities-dropdown.visible .menu,
+.ui.dropdown.utilities-dropdown.visible .ui.menu {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Dropdown menu items */
+.ui.dropdown.utilities-dropdown .menu .item,
+.utilities-dropdown .menu .item,
+.utilities-dropdown .ui.menu .item {
+  padding: 0.875rem 1.5rem !important;
+  color: var(--text-primary) !important;
+  transition: all 0.2s ease !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  white-space: nowrap !important;
+  background: transparent !important;
+}
+
+/* Ensure text is visible - target all child elements including spans */
+.ui.dropdown.utilities-dropdown .menu .item,
+.utilities-dropdown .menu .item,
+.utilities-dropdown .ui.menu .item,
+.ui.dropdown.utilities-dropdown .menu .item *,
+.utilities-dropdown .menu .item *,
+.utilities-dropdown .ui.menu .item *,
+.ui.dropdown.utilities-dropdown .menu .item span,
+.utilities-dropdown .menu .item span,
+.utilities-dropdown .ui.menu .item span {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item i.icon,
+.utilities-dropdown .menu .item i.icon,
+.utilities-dropdown .ui.menu .item i.icon {
+  margin: 0 !important;
+  opacity: 0.9;
+  color: var(--text-primary) !important;
+}
+
+/* Force text visibility - override any Semantic UI defaults */
+.ui.dropdown.utilities-dropdown .menu .item,
+.utilities-dropdown .menu .item,
+.utilities-dropdown .ui.menu .item {
+  font-size: 1rem !important;
+  line-height: 1.5 !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item span,
+.utilities-dropdown .menu .item span,
+.utilities-dropdown .ui.menu .item span {
+  display: inline-block !important;
+  color: var(--text-primary) !important;
+  font-weight: 500 !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item:hover,
+.utilities-dropdown .menu .item:hover,
+.utilities-dropdown .ui.menu .item:hover {
+  background: var(--bg-hover) !important;
+  color: var(--accent-primary) !important;
+  padding-left: 1.75rem !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item:hover i.icon,
+.utilities-dropdown .menu .item:hover i.icon,
+.utilities-dropdown .ui.menu .item:hover i.icon {
+  opacity: 1;
+  transform: scale(1.1);
+  color: var(--accent-primary) !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item.active,
+.utilities-dropdown .menu .item.active,
+.utilities-dropdown .ui.menu .item.active {
+  background: rgba(0, 255, 136, 0.1) !important;
+  color: var(--accent-primary) !important;
+  border-left: 3px solid var(--accent-primary) !important;
+}
+
+.ui.dropdown.utilities-dropdown .menu .item.active *,
+.utilities-dropdown .menu .item.active *,
+.utilities-dropdown .ui.menu .item.active * {
+  color: var(--accent-primary) !important;
+}
+
+.connection-status-item {
+  padding: 0.5rem 1rem !important;
+}
+
+/* Mobile Navigation */
+.mobile-nav-toggle {
+  display: none !important;
+}
+
+.mobile-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+  animation: fadeIn 0.2s ease;
+}
+
+.mobile-sidebar {
+  background: var(--bg-secondary) !important;
+  border-right: 2px solid var(--border-color) !important;
+  padding-top: 1rem !important;
+  z-index: 1000 !important;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5) !important;
+}
+
+.mobile-sidebar .item {
+  padding: 1rem 1.5rem !important;
+  color: var(--text-secondary) !important;
+  transition: all 0.2s ease !important;
+  border-left: 3px solid transparent !important;
+}
+
+.mobile-sidebar .item:hover {
+  background: var(--bg-hover) !important;
+  color: var(--accent-primary) !important;
+  border-left-color: var(--accent-primary) !important;
+}
+
+.mobile-sidebar .item.active {
+  background: rgba(0, 255, 136, 0.1) !important;
+  color: var(--accent-primary) !important;
+  border-left-color: var(--accent-primary) !important;
+}
+
+.mobile-connection-status {
+  margin-top: 1rem !important;
+  padding: 1rem 1.5rem !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+/* Responsive Navigation */
+@media (max-width: 991px) {
+  .desktop-nav {
+    display: none !important;
+  }
+  
+  .mobile-nav-toggle {
+    display: flex !important;
+  }
+  
+  .nav-container {
+    padding: 0 1rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    min-height: 60px !important;
+  }
+  
+  .nav-container {
+    padding: 0 0.75rem !important;
+  }
+}
 
 .brand-bar {
   background: linear-gradient(90deg, rgba(11,61,145,0.05), rgba(211,158,0,0.03));
@@ -70,6 +342,7 @@ body {
   flex: 1;
   display: flex;
   overflow: hidden;
+  margin-top: 70px; /* Account for fixed header */
 }
 
 .tables-view {
@@ -258,6 +531,10 @@ body {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .app-body {
+    margin-top: 60px; /* Smaller margin for mobile */
+  }
+  
   .header-content {
     flex-direction: column;
     gap: 1rem;

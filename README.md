@@ -82,7 +82,7 @@ For development with auto-reload:
 npm run dev
 ```
 
-The backend will run on `http://localhost:5000`
+The backend will run on `http://localhost:5001` (port 5001 to avoid macOS AirPlay Receiver conflict on port 5000)
 
 ### Start Frontend Application
 

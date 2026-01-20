@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Segment, Header, Button, Table, Message, Loader, Card, Grid } from 'semantic-ui-react';
+import { Table, Loader } from 'semantic-ui-react';
 import axios from 'axios';
+import './SiteDetail.css';
 
-export default function SiteDetail({ site, onBack }) {
+export default function SiteDetail({ site, onBack, backLabel = '← Back to Sites' }) {
   const [siteDetails, setSiteDetails] = useState(null);
   const [tables, setTables] = useState([]);
   const [satelliteTables, setSatelliteTables] = useState({});
   const [refTables, setRefTables] = useState({}); // Store reference table lookups
+  const [refAttributesLookup, setRefAttributesLookup] = useState({}); // attribute_id -> { nm, type } from ref_attributes
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [expandedTable, setExpandedTable] = useState(null);
+  const [expandedTables, setExpandedTables] = useState([]);
   const mapRef = useRef();
   const mapViewRef = useRef();
 
@@ -21,8 +23,8 @@ export default function SiteDetail({ site, onBack }) {
         const res = await axios.get('/api/tables');
         const allTables = res.data?.tables || [];
         
-        // Filter for satellite tables related to this site (sat_site_*)
-        const satellites = allTables.filter(t => t.startsWith('sat_site_'));
+        // Filter for satellite tables (sat_site_*), exclude sat_site_geometry (used only for the map)
+        const satellites = allTables.filter(t => t.startsWith('sat_site_') && t !== 'sat_site_geometry');
         
         if (!mounted) return;
         setTables(satellites);
@@ -33,6 +35,28 @@ export default function SiteDetail({ site, onBack }) {
       }
     })();
     
+    return () => { mounted = false; };
+  }, [site]);
+
+  // Load ref_attributes for resolving attr_<id> to attribute_nm (Details card) and for sat_site_attributes
+  useEffect(() => {
+    if (!site) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await axios.get('/api/table/ref_attributes');
+        const rows = res.data?.data || [];
+        const lookup = {};
+        rows.forEach(r => {
+          if (r.attribute_id != null) {
+            lookup[r.attribute_id] = { nm: r.attribute_nm, type: r.attribute_type };
+          }
+        });
+        if (mounted) setRefAttributesLookup(lookup);
+      } catch (e) {
+        if (mounted) setRefAttributesLookup({});
+      }
+    })();
     return () => { mounted = false; };
   }, [site]);
 
@@ -73,33 +97,8 @@ export default function SiteDetail({ site, onBack }) {
               }
             }
             
-            // Special handling for sat_site_attributes
-            if (tableName === 'sat_site_attributes') {
-              try {
-                const refRes = await axios.get('/api/table/ref_attributes');
-                const refData = refRes.data?.data || [];
-                
-                // Create a lookup: attribute_id -> {attribute_nm, attribute_type}
-                const attrLookup = {};
-                refData.forEach(row => {
-                  if (row.attribute_id) {
-                    attrLookup[row.attribute_id] = {
-                      nm: row.attribute_nm,
-                      type: row.attribute_type
-                    };
-                  }
-                });
-                
-                if (mounted) {
-                  refs['ref_attributes_full'] = attrLookup;
-                }
-              } catch (e) {
-                if (mounted) {
-                  refs['ref_attributes_full'] = {};
-                }
-              }
-            }
-            
+            // ref_attributes is loaded in a separate effect (refAttributesLookup); no need to fetch here
+
             // Find and load reference tables for foreign keys
             for (const column of data[tableName].columns) {
               if (column.endsWith('_id') && column !== 'hub_site_id') {
@@ -108,24 +107,29 @@ export default function SiteDetail({ site, onBack }) {
                 // Check if we haven't already loaded this reference table
                 if (!refs[refTableName]) {
                   try {
-                    const refRes = await axios.get(`/api/table/${refTableName}`);
+                    const refRes = await axios.get(`/api/table/${refTableName}`, { params: { limit: 5000 } });
                     const refData = refRes.data?.data || [];
-                    
-                    // Create a lookup map: id -> name
+                    const prefix = column.substring(0, column.length - 3); // e.g. 'material', 'style', 'type', 'use'
+                    const idCol = column;
+
+                    // Resolve name column: ref tables use {prefix}_nm (e.g. material_nm, style_nm, type_nm, use_nm)
+                    // or sometimes {prefix}_name / 'name' — pick first that exists in ref data
+                    const candidateNameCols = [prefix + '_nm', prefix + '_name', 'name'];
+                    const firstRow = refData[0];
+                    const refKeys = firstRow ? Object.keys(firstRow) : [];
+                    const nameCol = candidateNameCols.find(k => refKeys.includes(k)) || (prefix + '_nm');
+
                     const lookup = {};
                     refData.forEach(row => {
-                      const idCol = column; // e.g., 'material_id'
-                      const nameCol = column.substring(0, column.length - 3) + '_nm'; // e.g., 'material_nm'
-                      if (row[idCol] && row[nameCol]) {
+                      if (row[idCol] != null && row[nameCol] != null) {
                         lookup[row[idCol]] = row[nameCol];
                       }
                     });
-                    
+
                     if (mounted) {
                       refs[refTableName] = lookup;
                     }
                   } catch (e) {
-                    // Reference table doesn't exist, skip
                     if (mounted) {
                       refs[refTableName] = {};
                     }
@@ -139,6 +143,8 @@ export default function SiteDetail({ site, onBack }) {
         if (mounted) {
           setSatelliteTables(data);
           setRefTables(refs);
+          const withRecords = Object.keys(data).filter(t => (data[t]?.rows?.length ?? 0) > 0);
+          setExpandedTables(withRecords);
           setLoading(false);
         }
       } catch (err) {
@@ -157,37 +163,33 @@ export default function SiteDetail({ site, onBack }) {
   useEffect(() => {
     if (!site) return;
 
-    // Retry until mapRef is available and SDK is loaded
     let retries = 0;
-    const initMap = () => {
-      retries++;
-      if (!mapRef.current || !window.require) {
-        if (retries < 30) setTimeout(initMap, 100);
-        return;
-      }
+    let viewInstance = null;
 
-      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent', 'esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
-        (Map, MapView, Extent, Graphic, Polygon, Polyline, Point) => {
-          const view = new MapView({
-            container: mapRef.current,
-            map: new Map({ basemap: 'arcgis-streets' }),
-            extent: new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } })
-          });
-          mapViewRef.current = view;
+    const initializeMap = (Map, MapView, Extent, Graphic, Polygon, Polyline, Point) => {
+      if (!mapRef.current) return;
+      try {
+        if (mapViewRef.current) {
+          try { mapViewRef.current.destroy(); } catch (e) {}
+        }
+        const map = new Map({ basemap: 'arcgis-streets' });
+        const view = new MapView({
+          container: mapRef.current,
+          map,
+          extent: new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } })
+        });
+        mapViewRef.current = view;
+        viewInstance = view;
 
-          view.when(() => {
-            (async () => {
+        view.when(() => {
+          (async () => {
               try {
                 const siteId = site.hub_site_id || site.id;
-                console.log('Loading geometries for siteId:', siteId);
-                const response = await axios.get('/api/table/sat_site_geometry');
-                console.log('sat_site_geometry response:', response.data);
-                const siteGeoms = response.data?.data?.filter(g => g.hub_site_id === siteId) || [];
-                console.log('Filtered geometries for site:', siteGeoms);
-                
+                const response = await axios.get(`/api/sites/${siteId}/geometry`);
+                const siteGeoms = response.data?.data || [];
                 view.graphics.removeAll();
                 let bounds = null;
-                
+
                 const getCentroid = (geomData) => {
                   try {
                     if (geomData.type === 'Point') {
@@ -212,218 +214,224 @@ export default function SiteDetail({ site, onBack }) {
                   } catch (e) { return null; }
                 };
 
-                siteGeoms.forEach((geom, idx) => {
+                const addGraphic = (geometry, symbol) => {
+                  if (geometry && symbol) {
+                    view.graphics.add(new Graphic({ geometry, symbol }));
+                    if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
+                  }
+                };
+                const fillSymbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                const lineSymbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
+                const pointSymbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
+                const pinSymbol = { type: 'simple-marker', style: 'circle', color: [0, 113, 188], size: 18, outline: { color: [255, 255, 255], width: 3 } };
+
+                siteGeoms.forEach((row) => {
                   try {
-                    let geomData = geom.shape;
-                    console.log(`Processing geometry ${idx}:`, geomData);
-                    
-                    // Parse if it's a string (JSON from backend)
-                    if (typeof geomData === 'string') {
-                      geomData = JSON.parse(geomData);
-                    }
-                    
-                    if (!geomData || !geomData.type) {
-                      console.warn(`Geometry ${idx} missing or invalid type`);
-                      return;
-                    }
-                    
-                    let geometry = null, symbol = null;
-                    const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
-                    
+                    let geomData = row.geometry ?? row.shape ?? row.geom ?? row.the_geom;
+                    if (typeof geomData === 'string') geomData = JSON.parse(geomData);
+                    if (!geomData || !geomData.type) return;
+                    const spatialRef = (geomData.crs?.properties?.name === 'EPSG:2263') ? { wkid: 2263 } : { wkid: 4326 };
+
                     if (geomData.type === 'MultiPolygon') {
-                      const rings = geomData.coordinates.map(poly => poly[0]); // Get outer ring of each polygon
-                      geometry = new Polygon({ rings, spatialReference: spatialRef });
-                      symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                      geomData.coordinates.forEach((poly) => {
+                        const ring = poly[0];
+                        if (ring && ring.length) {
+                          const geometry = new Polygon({ rings: [ring], spatialReference: spatialRef });
+                          addGraphic(geometry, fillSymbol);
+                        }
+                      });
                     } else if (geomData.type === 'Polygon') {
-                      geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
-                      symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
+                      const geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
+                      addGraphic(geometry, fillSymbol);
                     } else if (geomData.type === 'LineString') {
-                      geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
-                      symbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
+                      const geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
+                      addGraphic(geometry, lineSymbol);
                     } else if (geomData.type === 'Point') {
-                      geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
-                      symbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
+                      const geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
+                      addGraphic(geometry, pointSymbol);
                     }
-                    
-                    if (geometry && symbol) {
-                      view.graphics.add(new Graphic({ geometry, symbol }));
-                      console.log(`Added feature ${idx} to map`);
-                      if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
-                    }
-                    
-                    // Add pin marker at centroid
+
                     const centroid = getCentroid(geomData);
                     if (centroid) {
-                      const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
                       const pinGeometry = new Point({ x: centroid.x, y: centroid.y, spatialReference: spatialRef });
-                      const pinSymbol = { 
-                        type: 'simple-marker', 
-                        style: 'circle', 
-                        color: [0, 113, 188], 
-                        size: 18, 
-                        outline: { color: [255, 255, 255], width: 3 } 
-                      };
                       view.graphics.add(new Graphic({ geometry: pinGeometry, symbol: pinSymbol }));
-                      console.log(`Added pin ${idx} at:`, centroid);
+                      if (pinGeometry.extent) bounds = bounds ? bounds.union(pinGeometry.extent) : pinGeometry.extent;
                     }
-                  } catch (e) { console.warn('Geometry parse error:', e); }
+                  } catch (e) { /* skip invalid geometry */ }
                 });
-                
-                console.log('Total geometries loaded:', siteGeoms.length, 'Bounds:', bounds);
-                if (bounds && siteGeoms.length > 0) {
-                  view.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
-                  console.log('Zoomed to bounds');
-                }
+                if (bounds && siteGeoms.length > 0) view.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
               } catch (err) { console.error('Geometry load error:', err); }
             })();
+          }).catch((error) => {
+            console.error('Error initializing map view:', error);
           });
-        }
-      );
+      } catch (error) {
+        console.error('Error creating map:', error);
+      }
     };
 
-    initMap();
-    return () => { if (mapViewRef.current) mapViewRef.current.destroy(); };
+    const tryInitialize = () => {
+      retries++;
+      if (!mapRef.current || !window.require) {
+        if (retries < 30) setTimeout(tryInitialize, 100);
+        return;
+      }
+      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent', 'esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], initializeMap, (err) => console.error('ArcGIS modules:', err));
+    };
+    tryInitialize();
+    
+    return () => {
+      if (viewInstance) {
+        try {
+          viewInstance.destroy();
+          viewInstance = null;
+          mapViewRef.current = null;
+        } catch (error) {
+          console.error('Error destroying map view:', error);
+        }
+      }
+    };
   }, [site]);
 
-  if (!siteDetails) {
-    return <Loader active inline="centered" />;
-  }
+  if (!site) return null;
+  // Use siteDetails when available (after /api/tables), else site so the map container exists from first render
+  const displayDetails = siteDetails || site;
+  const siteId = displayDetails.hub_site_id || displayDetails.id;
+  const attrs = Object.entries(displayDetails).filter(([k, v]) => k !== 'id' && k !== 'hub_site_id' && v != null && v !== '');
+  const tablesWithRecords = tables.filter(t => (satelliteTables[t]?.rows?.length ?? 0) > 0);
+
+  const attrDisplayName = (key) => {
+    const m = key.match(/^attr_(\d+)$/);
+    if (m) {
+      const id = parseInt(m[1], 10);
+      const info = refAttributesLookup[id] || refAttributesLookup[m[1]];
+      return info?.nm || key.replace(/_/g, ' ');
+    }
+    return key.replace(/_/g, ' ');
+  };
+
+  const toggleTable = (name) => {
+    setExpandedTables(prev => prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name]);
+  };
 
   return (
-    <div>
-      <Segment>
-        <Button icon onClick={onBack} style={{ marginBottom: '1rem' }}>
-          ← Back to Sites
-        </Button>
-        
-        <Header as="h2">Site Details</Header>
-        {error && <Message negative content={error} />}
-        
-        <Grid columns={2} stackable>
-          <Grid.Column width={6}>
-            <Card.Group>
-              <Card>
-                <Card.Content>
-                  <Card.Header>{siteDetails.name || 'Site'}</Card.Header>
-                  <Card.Description>
-                    <div style={{ marginTop: '1rem' }}>
-                      {Object.entries(siteDetails).map(([key, value]) => {
-                        if (key === 'id' || key === 'hub_site_id' || !value) return null;
-                        return (
-                          <div key={key} style={{ marginBottom: '0.5rem' }}>
-                            <strong>{key.replace(/_/g, ' ')}:</strong> {String(value)}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </Card.Description>
-                </Card.Content>
-              </Card>
-            </Card.Group>
-          </Grid.Column>
-          
-          <Grid.Column width={10}>
-            <div ref={mapRef} style={{ height: 600, width: 600, borderRadius: '4px', boxSizing: 'border-box' }} />
-          </Grid.Column>
-        </Grid>
-      </Segment>
+    <div className="site-detail">
+      <header className="site-detail-header">
+        <button type="button" className="site-detail-back" onClick={onBack} aria-label="Go back">
+          {backLabel}
+        </button>
+        <h1 className="site-detail-title">{displayDetails.name || 'Site'}</h1>
+        {siteId != null && <span className="site-detail-id">ID: {siteId}</span>}
+      </header>
 
-      {tables.length > 0 && (
-        <Segment>
-          <Header as="h3">Satellite Data ({tables.length} tables)</Header>
-          {loading ? <Loader active inline="centered" /> : null}
-          
-          {tables.map(tableName => (
-            <div key={tableName} style={{ marginBottom: '2rem' }}>
-              <Header as="h4" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }} onClick={() => setExpandedTable(expandedTable === tableName ? null : tableName)}>
-                <span style={{ marginRight: '0.5rem' }}>
-                  {expandedTable === tableName ? '▼' : '▶'}
-                </span>
-                {tableName.replace(/_/g, ' ').toUpperCase()}
-                <span style={{ marginLeft: '0.5rem', color: '#999', fontSize: '0.9rem' }}>
-                  ({satelliteTables[tableName]?.rows?.length || 0} records)
-                </span>
-              </Header>
-              
-              {expandedTable === tableName && satelliteTables[tableName] && (
-                <Table celled compact>
-                  <Table.Header>
-                    <Table.Row>
-                      {tableName === 'sat_site_attributes' ? (
-                        <>
-                          <Table.HeaderCell>Attribute Name</Table.HeaderCell>
-                          <Table.HeaderCell>Attribute Value</Table.HeaderCell>
-                        </>
-                      ) : (
-                        satelliteTables[tableName].columns.map(col => (
-                          <Table.HeaderCell key={col}>{col.replace(/_/g, ' ')}</Table.HeaderCell>
-                        ))
-                      )}
-                    </Table.Row>
-                  </Table.Header>
-                  <Table.Body>
-                    {satelliteTables[tableName].rows.length > 0 ? (
-                      satelliteTables[tableName].rows.map((row, idx) => {
-                        // Special rendering for sat_site_attributes
-                        if (tableName === 'sat_site_attributes') {
-                          const attrLookup = refTables['ref_attributes_full'] || {};
-                          const attrInfo = attrLookup[row.attribute_id];
-                          
-                          if (!attrInfo) {
-                            return null;
-                          }
-                          
-                          // Get the value column based on attribute type
-                          const valueColName = `attribute_value_${attrInfo.type}`;
-                          const attrValue = row[valueColName];
-                          
-                          return (
-                            <Table.Row key={idx}>
-                              <Table.Cell>{attrInfo.nm}</Table.Cell>
-                              <Table.Cell>{attrValue}</Table.Cell>
-                            </Table.Row>
-                          );
-                        }
-                        
-                        // Standard rendering for other tables
-                        return (
-                          <Table.Row key={idx}>
-                            {satelliteTables[tableName].columns.map(col => {
-                              let displayValue = row[col];
-                              
-                              // Check if this is a foreign key field
-                              if (col.endsWith('_id') && col !== 'hub_site_id' && row[col]) {
-                                const refTableName = 'ref_' + col.substring(0, col.length - 3);
-                                const lookup = refTables[refTableName] || {};
-                                displayValue = lookup[row[col]] || row[col];
-                              }
-                              
+      {error && <div className="site-detail-error">{error}</div>}
+
+      <section className="site-detail-main">
+        <div className="site-detail-card">
+          <div className="site-detail-card-header">Details</div>
+          <div className="site-detail-attrs">
+            {attrs.map(([key, value]) => (
+              <div key={key} className="site-detail-attr">
+                <span className="site-detail-attr-key">{attrDisplayName(key)}</span>
+                <span className="site-detail-attr-val">{String(value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="site-detail-map-wrap">
+          <span className="site-detail-map-label">Location</span>
+          <div ref={mapRef} className="site-detail-map" />
+        </div>
+      </section>
+
+      {tablesWithRecords.length > 0 && (
+        <section className="site-detail-satellite">
+          <div className="site-detail-satellite-header">Satellite Data · {tablesWithRecords.length} table{tablesWithRecords.length !== 1 ? 's' : ''}</div>
+          <div className="site-detail-satellite-body">
+            {loading && <Loader active inline="centered" />}
+            {!loading && tablesWithRecords.map(tableName => (
+              <div key={tableName} className={`site-detail-table-block${expandedTables.includes(tableName) ? ' expanded' : ''}`}>
+                <button
+                  type="button"
+                  className="site-detail-table-toggle"
+                  onClick={() => toggleTable(tableName)}
+                >
+                  <span className="site-detail-table-toggle-icon">{expandedTables.includes(tableName) ? '▼' : '▶'}</span>
+                  {tableName.replace(/_/g, ' ')}
+                  <span className="site-detail-table-meta">{satelliteTables[tableName]?.rows?.length ?? 0} record{(satelliteTables[tableName]?.rows?.length ?? 0) !== 1 ? 's' : ''}</span>
+                </button>
+                {expandedTables.includes(tableName) && satelliteTables[tableName] && (() => {
+                  const displayCols = satelliteTables[tableName].columns.filter(c => c !== 'hub_site_id' && c !== 'sort_order');
+                  const sortedRows = [...satelliteTables[tableName].rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+                  return (
+                  <div className="site-detail-table-inner">
+                    <Table celled compact>
+                      <Table.Header>
+                        <Table.Row>
+                          {tableName === 'sat_site_attributes' ? (
+                            <>
+                              <Table.HeaderCell>Attribute Name</Table.HeaderCell>
+                              <Table.HeaderCell>Attribute Value</Table.HeaderCell>
+                            </>
+                          ) : (
+                            displayCols.map(col => {
+                              const label = col.endsWith('_id')
+                                ? (col.substring(0, col.length - 3).charAt(0).toUpperCase() + col.substring(0, col.length - 3).slice(1))
+                                : col.replace(/_/g, ' ');
+                              return <Table.HeaderCell key={col}>{label}</Table.HeaderCell>;
+                            })
+                          )}
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {satelliteTables[tableName].rows.length > 0 ? (
+                          sortedRows.map((row, idx) => {
+                            if (tableName === 'sat_site_attributes') {
+                              const attrInfo = refAttributesLookup[row.attribute_id];
+                              if (!attrInfo) return null;
+                              const valueColName = `attribute_value_${attrInfo.type}`;
+                              const attrValue = row[valueColName];
                               return (
-                                <Table.Cell key={`${idx}-${col}`}>{displayValue}</Table.Cell>
+                                <Table.Row key={idx}>
+                                  <Table.Cell>{attrInfo.nm}</Table.Cell>
+                                  <Table.Cell>{attrValue}</Table.Cell>
+                                </Table.Row>
                               );
-                            })}
+                            }
+                            return (
+                              <Table.Row key={idx}>
+                                {displayCols.map(col => {
+                                  let displayValue = row[col];
+                                  if (col.endsWith('_id') && row[col]) {
+                                    const refTableName = 'ref_' + col.substring(0, col.length - 3);
+                                    const lookup = refTables[refTableName] || {};
+                                    displayValue = lookup[row[col]] || row[col];
+                                  }
+                                  return <Table.Cell key={`${idx}-${col}`}>{displayValue}</Table.Cell>;
+                                })}
+                              </Table.Row>
+                            );
+                          })
+                        ) : (
+                          <Table.Row>
+                            <Table.Cell colSpan={tableName === 'sat_site_attributes' ? 2 : displayCols.length} textAlign="center">
+                              No data
+                            </Table.Cell>
                           </Table.Row>
-                        );
-                      })
-                    ) : (
-                      <Table.Row>
-                        <Table.Cell colSpan={tableName === 'sat_site_attributes' ? 2 : satelliteTables[tableName].columns.length} textAlign="center">
-                          No data
-                        </Table.Cell>
-                      </Table.Row>
-                    )}
-                  </Table.Body>
-                </Table>
-              )}
-            </div>
-          ))}
-        </Segment>
+                        )}
+                      </Table.Body>
+                    </Table>
+                  </div>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
-      
+
       {tables.length === 0 && !loading && (
-        <Segment>
-          <Message info>No satellite tables found for this site</Message>
-        </Segment>
+        <div className="site-detail-empty">No satellite tables found for this site.</div>
       )}
     </div>
   );

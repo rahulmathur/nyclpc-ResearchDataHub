@@ -1,0 +1,27 @@
+.project-detail { padding: 12px; }
+.project-detail-steps { color: #6b6b6b; }
+.project-detail-actions { display:flex; gap:8px; margin-top:12px; }
+.empty, .loading { padding:12px; color:#666; }
+/* Most visual styling handled by Semantic UI; keep only small layout overrides here. */
+
+/* Site ID link styling */
+.site-id-link {
+  color: #00ccff !important;
+  text-decoration: underline !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  display: inline-block !important;
+  position: relative !important;
+  z-index: 10 !important;
+}
+
+.site-id-link:hover {
+  color: #00ff88 !important;
+  text-decoration: underline !important;
+}
+
+/* Ensure link is visible in Card.Meta */
+.project-detail .ui.card .meta .site-id-link {
+  color: #00ccff !important;
+  text-decoration: underline !important;
+}

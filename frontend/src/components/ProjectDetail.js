@@ -2,9 +2,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { Segment, Header, List, Loader, Message, Button, Grid, Card, Modal } from 'semantic-ui-react';
 import SiteDetail from './SiteDetail';
-import './Wizard.css';
+import './ProjectDetail.css';
 
-function Wizard() {
+function ProjectDetail({ onViewSiteDetail }) {
   const [step, setStep] = useState(1);
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -87,8 +87,15 @@ function Wizard() {
       e.preventDefault();
       e.stopPropagation();
     }
-    setSiteToView(site);
-    setSiteDetailModalOpen(true);
+    
+    // If onViewSiteDetail callback is provided, navigate to site detail page
+    // Otherwise, open in modal (fallback for standalone usage)
+    if (onViewSiteDetail) {
+      onViewSiteDetail(site, 'project-detail');
+    } else {
+      setSiteToView(site);
+      setSiteDetailModalOpen(true);
+    }
   };
 
   const closeSiteDetails = () => {
@@ -97,21 +104,21 @@ function Wizard() {
   };
 
   return (
-    <div className="wizard">
+    <div className="project-detail">
       <Segment>
         <Grid columns={2} verticalAlign="middle">
           <Grid.Column>
             <Header as="h2">Project → Site Wizard</Header>
           </Grid.Column>
           <Grid.Column textAlign="right">
-            <div className="wizard-steps">Step {step} of 2</div>
+            <div className="project-detail-steps">Step {step} of 2</div>
           </Grid.Column>
         </Grid>
 
         {error && <Message negative content={error} />}
 
         {step === 1 && (
-          <div className="wizard-step">
+          <div className="project-detail-step">
             <Header as="h4">Select a project from the list below</Header>
 
             {loadingProjects ? (
@@ -154,7 +161,7 @@ function Wizard() {
         )}
 
         {step === 2 && (
-          <div className="wizard-step">
+          <div className="project-detail-step">
             <Header as="h4">Selected project: <strong>{selectedProject?.name || selectedProject?.id}</strong></Header>
             <p>Select a site linked to this project.</p>
 
@@ -180,8 +187,26 @@ function Wizard() {
                         ID:{' '}
                         <a
                           href="#"
-                          onClick={(e) => openSiteDetails(s, e)}
-                          style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openSiteDetails(s, e);
+                          }}
+                          className="site-id-link"
+                          style={{ 
+                            textDecoration: 'underline', 
+                            cursor: 'pointer',
+                            fontWeight: '500',
+                            color: onViewSiteDetail ? '#00ff88' : '#00ccff',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = '#00ff88';
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = onViewSiteDetail ? '#00ff88' : '#00ccff';
+                          }}
                           aria-label={`View details for site ${getId(s)}`}
                         >
                           {getId(s)}
@@ -193,7 +218,7 @@ function Wizard() {
               </Card.Group>
             )}
 
-            <div className="wizard-actions" style={{ marginTop: 12 }}>
+            <div className="project-detail-actions" style={{ marginTop: 12 }}>
               <Button onClick={() => setStep(1)}>← Back</Button>
               <Button primary onClick={confirm} disabled={!selectedSite}>Confirm</Button>
             </div>
@@ -215,4 +240,4 @@ function Wizard() {
   );
 }
 
-export default Wizard;
+export default ProjectDetail;

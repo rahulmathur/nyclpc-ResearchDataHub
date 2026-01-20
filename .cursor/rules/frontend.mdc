@@ -1,0 +1,237 @@
+---
+description: Rules for working with the React frontend
+globs: frontend/**/*
+---
+
+# Frontend Development Rules
+
+## Overview
+The frontend is a React 18 SPA using Semantic UI React for components and ArcGIS JavaScript API for mapping.
+
+## Component Structure
+
+### File Organization
+Each component has its own file and optional CSS:
+```
+components/
+├── ComponentName.js
+├── ComponentName.css
+└── __tests__/
+    └── ComponentName.test.js
+```
+
+### Component Pattern
+```javascript
+import React, { useState, useEffect } from 'react';
+import { Segment, Header, Button } from 'semantic-ui-react';
+import axios from 'axios';
+import './ComponentName.css';
+
+export default function ComponentName({ prop1, onAction }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get('/api/endpoint');
+      setData(response.data.data || []);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Segment>
+      <Header as="h2">Title</Header>
+      {error && <Message negative content={error} />}
+      {/* Component content */}
+    </Segment>
+  );
+}
+```
+
+## Semantic UI React Usage
+
+### Common Components
+- `<Segment>` - Content container
+- `<Header>` - Headings with `as="h1"` through `as="h6"`
+- `<Button>`, `<Button primary>`, `<Button negative>`
+- `<Form>`, `<Form.Input>`, `<Form.Select>`, `<Form.TextArea>`
+- `<Table>`, `<Table.Header>`, `<Table.Body>`, `<Table.Row>`, `<Table.Cell>`
+- `<Message>`, `<Message positive>`, `<Message negative>`
+- `<Modal>`, `<Modal.Header>`, `<Modal.Content>`, `<Modal.Actions>`
+- `<Icon name="icon-name" />`
+- `<Grid>`, `<Grid.Column>`
+- `<Menu>`, `<Menu.Item>`
+
+### Form Handling
+```javascript
+const handleChange = (e, { name, value }) => {
+  setForm(prev => ({ ...prev, [name]: value }));
+};
+
+<Form.Input 
+  name="fieldName" 
+  label="Field Label" 
+  value={form.fieldName} 
+  onChange={handleChange} 
+  error={!!errors.fieldName}
+/>
+
+<Form.Select
+  name="enumField"
+  label="Enum Field"
+  options={[{ key: 'a', value: 'a', text: 'Option A' }]}
+  value={form.enumField}
+  onChange={handleChange}
+/>
+```
+
+## API Communication
+
+### Axios Pattern
+```javascript
+// GET with params
+const response = await axios.get('/api/table/tablename', { 
+  params: { limit: 50, offset: 0, q: searchTerm } 
+});
+
+// POST
+const response = await axios.post('/api/projects', formData);
+
+// PUT
+await axios.put(`/api/projects/${projectId}`, formData);
+
+// DELETE
+await axios.delete(`/api/projects/${projectId}`);
+```
+
+### Error Handling
+```javascript
+try {
+  const response = await axios.get('/api/endpoint');
+  // handle success
+} catch (err) {
+  const errorMessage = err.response?.data?.error || err.message;
+  setError(errorMessage);
+}
+```
+
+## ArcGIS Mapping
+
+### AMD Loader Pattern
+```javascript
+useEffect(() => {
+  const initMap = () => {
+    if (!mapRef.current || !window.require) return;
+    
+    window.require(
+      ['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'],
+      (Map, MapView, Extent) => {
+        const map = new Map({ basemap: 'arcgis-streets' });
+        const nycExtent = new Extent({
+          xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916,
+          spatialReference: { wkid: 4326 }
+        });
+        const view = new MapView({
+          container: mapRef.current,
+          map,
+          extent: nycExtent
+        });
+        mapViewRef.current = view;
+      }
+    );
+  };
+  initMap();
+
+  return () => {
+    if (mapViewRef.current) {
+      mapViewRef.current.destroy();
+      mapViewRef.current = null;
+    }
+  };
+}, []);
+```
+
+### Adding Graphics
+```javascript
+window.require(['esri/Graphic'], (Graphic) => {
+  const point = { type: 'point', longitude: lng, latitude: lat };
+  const marker = new Graphic({
+    geometry: point,
+    symbol: { type: 'simple-marker', color: [226, 119, 40], size: 12 }
+  });
+  mapViewRef.current.graphics.add(marker);
+});
+```
+
+### Handling GeoJSON from API
+```javascript
+const geomData = typeof geom.geometry === 'string' 
+  ? JSON.parse(geom.geometry) 
+  : geom.geometry;
+
+if (geomData.type === 'Polygon') {
+  const geometry = new Polygon({
+    rings: geomData.coordinates,
+    spatialReference: { wkid: 4326 }
+  });
+}
+```
+
+## CSS Conventions
+
+### Component CSS
+```css
+.component-name {
+  /* Use CSS variables from App.css */
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.component-name .header {
+  margin-bottom: 1rem;
+}
+
+.component-name .button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+```
+
+### Available CSS Variables
+```css
+--brand-primary: #0071bc;
+--brand-secondary: #e27728;
+--bg-primary: #1a1a2e;
+--bg-secondary: #16213e;
+--text-primary: #ffffff;
+--text-dim: #888;
+```
+
+## Navigation
+
+The app uses a single-page navigation pattern via state:
+```javascript
+const [activeView, setActiveView] = useState('splash');
+// Views: 'splash', 'projects', 'sites', 'site-detail', 'create-project', 'tables', 'query'
+```
+
+Views are rendered conditionally in App.js based on `activeView` state.
+
+## Schema-Driven Forms
+
+Components can fetch column metadata to build dynamic forms:
+```javascript
+const res = await axios.get('/api/columns/hub_projects');
+const cols = res.data?.columns || [];
+// cols contains: { column_name, data_type, enum_values }
+```

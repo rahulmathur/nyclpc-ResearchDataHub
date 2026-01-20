@@ -8,7 +8,7 @@ function ConnectionStatus({ status }) {
   return (
     <Label color={isConnected ? 'green' : 'red'}>
       <Icon name={isConnected ? 'plug' : 'unlink'} />
-      {isConnected ? `Connected to ${status.dbType}` : 'Disconnected'}
+      {isConnected ? `Connected` : 'Disconnected'}
     </Label>
   );
 }

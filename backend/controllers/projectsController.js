@@ -81,9 +81,11 @@ async function updateProject(req, res) {
     }
 
     const pk = await getPrimaryKey(tableName) || 'hub_project_id';
-    const keys = Object.keys(data);
+    const { [pk]: _pk, ...updateData } = data;
+    const keys = Object.keys(updateData);
+    if (keys.length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
-    const values = [...Object.values(data), projectId];
+    const values = [...Object.values(updateData), projectId];
     const result = await getPool().query(
       `UPDATE ${tableName} SET ${setClause} WHERE ${pk} = $${values.length} RETURNING *`,
       values
@@ -98,13 +100,29 @@ async function updateProject(req, res) {
 }
 
 // Delete a project
+// Must remove dependent rows in lnk_project_site and sat_project_site_attributes first
+// (works even when DB does not have ON DELETE CASCADE on these FKs)
 async function deleteProject(req, res) {
   const { projectId } = req.params;
   const tableName = 'hub_projects';
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
+
+    // 1. Delete project-site links (avoids lnk_project_site_hub_project_id_fkey violation)
+    await pool.query('DELETE FROM lnk_project_site WHERE hub_project_id = $1', [projectId]);
+
+    // 2. Delete project's selected site attributes (if table exists)
+    try {
+      await pool.query('DELETE FROM sat_project_site_attributes WHERE hub_project_id = $1', [projectId]);
+    } catch (e) {
+      if (e.code !== '42P01') throw e; // 42P01 = undefined_table; ignore if table missing
+    }
+
+    // 3. Delete the project
     const pk = await getPrimaryKey(tableName) || 'hub_project_id';
-    await getPool().query(`DELETE FROM ${tableName} WHERE ${pk} = $1`, [projectId]);
+    const del = await pool.query(`DELETE FROM ${tableName} WHERE ${pk} = $1 RETURNING 1`, [projectId]);
+    if (del.rowCount === 0) return res.status(404).json({ error: 'Project not found' });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -360,17 +378,142 @@ function groupAndSet(rows, resultMap, valueKey) {
   }
 }
 
+// Get sites list for Sites list page: full hub_sites rows with filters and pagination.
+// Query params: siteId, bin, material, style, use, type (all optional), limit (default 500, max 1000), offset (default 0).
+async function getSitesList(req, res) {
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
+
+    const siteId = (req.query.siteId || '').trim();
+    const bin = (req.query.bin || '').trim();
+    const material = (req.query.material || '').trim();
+    const style = (req.query.style || '').trim();
+    const use = (req.query.use || '').trim();
+    const type = (req.query.type || '').trim();
+    let limit = parseInt(req.query.limit, 10) || 500;
+    const maxLimit = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
+    if (limit > maxLimit) limit = maxLimit;
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+
+    // Resolve BIN attribute from ref_attributes when bin filter is used
+    let binAttr = null;
+    if (bin) {
+      try {
+        const ar = await pool.query(
+          `SELECT attribute_id, attribute_type FROM ref_attributes WHERE attribute_p_or_s = 'S' AND (attribute_nm = 'bin' OR attribute_text = 'bin') LIMIT 1`,
+          []
+        );
+        const row = ar.rows[0];
+        if (row && ['int', 'txt', 'num', 'ts'].includes(row.attribute_type)) {
+          binAttr = { attribute_id: row.attribute_id, attribute_type: row.attribute_type };
+        }
+      } catch (e) {
+        // ref_attributes or sat_site_attributes may not exist; skip BIN filter
+      }
+    }
+
+    const conditions = [];
+    const params = [];
+    if (siteId) {
+      conditions.push(`h.hub_site_id::text ILIKE $${params.length + 1}`);
+      params.push(`%${siteId}%`);
+    }
+    if (bin && binAttr) {
+      const valueCol = { int: 'attribute_value_int', txt: 'attribute_value_text', num: 'attribute_value_number', ts: 'attribute_value_ts' }[binAttr.attribute_type];
+      conditions.push(`EXISTS (SELECT 1 FROM sat_site_attributes ssa WHERE ssa.hub_site_id = h.hub_site_id AND ssa.attribute_id = $${params.length + 1} AND ssa.${valueCol}::text ILIKE $${params.length + 2})`);
+      params.push(binAttr.attribute_id, `%${bin}%`);
+    }
+    if (material) {
+      conditions.push(`EXISTS (SELECT 1 FROM sat_site_material sm JOIN ref_material m ON sm.material_id = m.material_id WHERE sm.hub_site_id = h.hub_site_id AND m.material_nm ILIKE $${params.length + 1})`);
+      params.push(`%${material}%`);
+    }
+    if (style) {
+      conditions.push(`EXISTS (SELECT 1 FROM sat_site_style ss JOIN ref_style s ON ss.style_id = s.style_id WHERE ss.hub_site_id = h.hub_site_id AND s.style_nm ILIKE $${params.length + 1})`);
+      params.push(`%${style}%`);
+    }
+    if (use) {
+      conditions.push(`EXISTS (SELECT 1 FROM sat_site_use su JOIN ref_use u ON su.use_id = u.use_id WHERE su.hub_site_id = h.hub_site_id AND u.use_nm ILIKE $${params.length + 1})`);
+      params.push(`%${use}%`);
+    }
+    if (type) {
+      conditions.push(`EXISTS (SELECT 1 FROM sat_site_type st JOIN ref_type t ON st.type_id = t.type_id WHERE st.hub_site_id = h.hub_site_id AND t.type_nm ILIKE $${params.length + 1})`);
+      params.push(`%${type}%`);
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Geometry columns on hub_sites (convert to GeoJSON)
+    const geomColRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hub_sites' AND udt_name = 'geometry'`,
+      []
+    );
+    const geomCols = geomColRes.rows.map(r => r.column_name);
+
+    const allColsRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hub_sites' ORDER BY ordinal_position`,
+      []
+    );
+    const allCols = allColsRes.rows.map(r => r.column_name);
+    const selectList = allCols.map(col =>
+      geomCols.includes(col) ? `ST_AsGeoJSON(h.${col})::text AS ${col}` : `h.${col}`
+    ).join(', ');
+
+    const pk = await getPrimaryKey('hub_sites') || 'hub_site_id';
+
+    // Count
+    const countRes = await pool.query(`SELECT COUNT(*) AS count FROM hub_sites h ${whereClause}`, params);
+    const count = parseInt(countRes.rows[0].count, 10);
+
+    // Data
+    const dataParams = [...params, limit, offset];
+    const dataQuery = `SELECT ${selectList} FROM hub_sites h ${whereClause} ORDER BY h.${pk} ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    const dataRes = await pool.query(dataQuery, dataParams);
+    const data = dataRes.rows.map(r => ({ ...r, id: r.hub_site_id }));
+
+    res.json({ success: true, data, count });
+  } catch (error) {
+    console.error('getSitesList error:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
 // Get all available sites (for adding to projects)
+// Query params: limit (default 100, max 500, 0 = count only), offset (default 0), q (optional search on hub_site_id)
 async function getAllSites(req, res) {
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-    const result = await getPool().query(`
-      SELECT hub_site_id
-      FROM hub_sites
-      ORDER BY hub_site_id
-    `);
-    const sites = result.rows.map(r => ({ ...r, id: r.hub_site_id }));
-    res.json({ success: true, data: sites });
+    const pool = getPool();
+    const limit = Math.min(Math.max(0, parseInt(req.query.limit, 10) || 100), 500);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const q = (req.query.q || '').trim();
+
+    const hasSearch = q.length > 0;
+
+    const searchPattern = `%${q}%`;
+    if (limit === 0) {
+      // Count-only request (e.g. for splash stats)
+      const countQuery = hasSearch
+        ? `SELECT COUNT(*) AS total FROM hub_sites WHERE hub_site_id::text ILIKE $1`
+        : `SELECT COUNT(*) AS total FROM hub_sites`;
+      const countParams = hasSearch ? [searchPattern] : [];
+      const countResult = await pool.query(countQuery, countParams);
+      const total = parseInt(countResult.rows[0].total, 10);
+      return res.json({ success: true, data: [], total });
+    }
+
+    const selectQuery = hasSearch
+      ? `SELECT hub_site_id, COUNT(*) OVER() AS _total FROM hub_sites
+         WHERE hub_site_id::text ILIKE $1
+         ORDER BY hub_site_id
+         LIMIT $2 OFFSET $3`
+      : `SELECT hub_site_id, COUNT(*) OVER() AS _total FROM hub_sites
+         ORDER BY hub_site_id
+         LIMIT $1 OFFSET $2`;
+    const selectParams = hasSearch ? [searchPattern, limit, offset] : [limit, offset];
+    const result = await pool.query(selectQuery, selectParams);
+    const total = result.rows[0] ? parseInt(result.rows[0]._total, 10) : 0;
+    const sites = result.rows.map(r => ({ hub_site_id: r.hub_site_id, id: r.hub_site_id }));
+    res.json({ success: true, data: sites, total });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -416,6 +559,7 @@ module.exports = {
   updateProjectSiteAttributes,
   getSiteAttributes,
   getSitesWithAttributes,
+  getSitesList,
   getAllSites,
   updateProjectSites
 };

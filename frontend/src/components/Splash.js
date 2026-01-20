@@ -1,61 +1,133 @@
-import React from 'react';
-import { Segment, Header, Grid, Button, Icon } from 'semantic-ui-react';
+import React, { useState, useEffect } from 'react';
+import { Button, Icon } from 'semantic-ui-react';
+import axios from 'axios';
+import researchSplash from '../assets/research-splash.jpg';
 import './Splash.css';
 
-export default function Splash({ onCreateProject, onViewProjects, onViewSites, onLogin, onSignup }) {
-  const handleLogin = () => {
-    if (onLogin) return onLogin();
-    window.location.href = '/login';
-  };
-  const handleSignup = () => {
-    if (onSignup) return onSignup();
-    window.location.href = '/signup';
-  };
+export default function Splash({ onCreateProject, onViewProjects, onViewSites }) {
+  const [stats, setStats] = useState({ projects: 0, sites: 0, loading: true });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [projectsRes, sitesRes] = await Promise.all([
+          axios.get('/api/projects').catch(() => ({ data: { data: [] } })),
+          axios.get('/api/sites', { params: { limit: 0 } }).catch(() => ({ data: { data: [], total: 0 } }))
+        ]);
+        setStats({
+          projects: projectsRes.data?.data?.length || 0,
+          sites: sitesRes.data?.total ?? 0,
+          loading: false
+        });
+      } catch (error) {
+        setStats({ projects: 0, sites: 0, loading: false });
+      }
+    };
+    fetchStats();
+  }, []);
 
   return (
     <div className="splash-page">
-      <div className="splash-hero" role="img" aria-label="Research Data Hub hero">
+      {/* Hero Section */}
+      <div className="splash-hero" role="img" aria-label="Research Data Hub hero" style={{ backgroundImage: `url(${researchSplash})` }}>
         <div className="splash-hero-overlay">
-          <div className="splash-hero-left">
-            <Header as="h1" inverted>Welcome to the LPC Research Data Hub</Header>
-            <p className="splash-sub inverted">Search, explore, and contribute to LPC's research dataset</p>
-            <img src="/assets/research-hub-logo.png" alt="Research Data Hub" className="hero-logo" />
-            <div className="hero-ctas">
-              <Button basic inverted className="signup-btn" onClick={handleSignup}>Create account</Button>
-              <Button primary className="login-btn" onClick={handleLogin}>Login</Button>
+          <div className="splash-hero-content">
+            <p className="hero-description">
+              Search, explore, and manage LPC's research dataset. 
+              Create projects, link sites, and analyze landmark preservation data.
+            </p>
+            <div className="hero-stats">
+              <div className="stat-item">
+                <div className="stat-number">{stats.loading ? '...' : stats.projects}</div>
+                <div className="stat-label">Projects</div>
+              </div>
+              <div className="stat-divider"></div>
+              <div className="stat-item">
+                <div className="stat-number">{stats.loading ? '...' : stats.sites}</div>
+                <div className="stat-label">Sites</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <Segment padded>
-        <p className="splash-sub">Quick actions to get you started</p>
+      {/* Quick Actions Section */}
+      <div className="splash-actions">
+        <div className="actions-header">
+          <h2 className="actions-title">Get Started</h2>
+          <p className="actions-subtitle">Choose an action to begin working with the Research Data Hub</p>
+        </div>
 
-        <Grid columns={3} stackable divided className="splash-grid">
-          <Grid.Column textAlign="center">
-            <Button primary size="large" onClick={onCreateProject} className="splash-btn" aria-label="Create a project">
-              <Icon name="plus circle" /> Create a project
+        <div className="actions-grid">
+          <div className="action-card primary" onClick={onCreateProject}>
+            <div className="action-icon-wrapper">
+              <Icon name="plus circle" className="action-icon" />
+            </div>
+            <h3 className="action-title">Create Project</h3>
+            <p className="action-description">
+              Add a new research project to the database. Define project details, 
+              location, and metadata.
+            </p>
+            <Button primary className="action-button">
+              Create Project <Icon name="arrow right" />
             </Button>
-            <div className="splash-desc">Add a new project record to the `hub_projects` table</div>
-          </Grid.Column>
+          </div>
 
-          <Grid.Column textAlign="center">
-            <Button basic size="large" onClick={onViewProjects} className="splash-btn" aria-label="View projects">
-              <Icon name="list" /> View projects
+          <div className="action-card" onClick={onViewProjects}>
+            <div className="action-icon-wrapper">
+              <Icon name="folder open" className="action-icon" />
+            </div>
+            <h3 className="action-title">View Projects</h3>
+            <p className="action-description">
+              Browse and manage existing research projects. Edit project details, 
+              view associated sites, and manage project data.
+            </p>
+            <Button className="action-button">
+              View Projects <Icon name="arrow right" />
             </Button>
-            <div className="splash-desc">Browse existing projects and edit or delete them</div>
-          </Grid.Column>
+          </div>
 
-          <Grid.Column textAlign="center">
-            <Button basic size="large" onClick={onViewSites} className="splash-btn" aria-label="View sites">
-              <Icon name="map marker alternate" /> View sites
+          <div className="action-card" onClick={onViewSites}>
+            <div className="action-icon-wrapper">
+              <Icon name="map marker alternate" className="action-icon" />
+            </div>
+            <h3 className="action-title">View Sites</h3>
+            <p className="action-description">
+              Explore all landmark sites in the database. View site details, 
+              attributes, and geographic information.
+            </p>
+            <Button className="action-button">
+              View Sites <Icon name="arrow right" />
             </Button>
-            <div className="splash-desc">Browse all sites in the `hub_sites` table</div>
-          </Grid.Column>
-        </Grid>
+          </div>
+        </div>
+      </div>
 
-        <div className="splash-footer-text">Begin using LPC Research Data Hub</div>
-      </Segment>
+      {/* Features Section */}
+      <div className="splash-features">
+        <div className="features-grid">
+          <div className="feature-item">
+            <Icon name="search" className="feature-icon" />
+            <h4>Search & Explore</h4>
+            <p>Powerful query tools to search and filter research data</p>
+          </div>
+          <div className="feature-item">
+            <Icon name="database" className="feature-icon" />
+            <h4>Data Management</h4>
+            <p>Manage projects, sites, and attributes with ease</p>
+          </div>
+          <div className="feature-item">
+            <Icon name="map" className="feature-icon" />
+            <h4>Geographic Data</h4>
+            <p>View and manage spatial information for landmarks</p>
+          </div>
+          <div className="feature-item">
+            <Icon name="chart bar" className="feature-icon" />
+            <h4>Analytics</h4>
+            <p>Analyze research data with custom queries and reports</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

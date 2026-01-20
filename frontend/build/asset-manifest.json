@@ -1,7 +1,9 @@
 {
   "files": {
-    "main.css": "/static/css/main.04a246c6.css",
-    "main.js": "/static/js/main.5ab00dee.js",
+    "main.css": "/static/css/main.5450be28.css",
+    "main.js": "/static/js/main.d5678e4d.js",
+    "static/media/research-splash.jpg": "/static/media/research-splash.fa1a3a053fd720e2170f.jpg",
+    "static/media/logo.png": "/static/media/logo.1845a1295061df73d391.png",
     "static/media/brand-icons.svg": "/static/media/brand-icons.6729d29753e000c17489.svg",
     "static/media/icons.svg": "/static/media/icons.62d9dae4e0040e81c980.svg",
     "static/media/outline-icons.svg": "/static/media/outline-icons.9c4845b4b41ef40a22fa.svg",
@@ -18,13 +20,12 @@
     "static/media/flags.png": "/static/media/flags.99f63ae7a743f21ab308.png",
     "static/media/outline-icons.woff": "/static/media/outline-icons.ddae9b1ba9b0b42f5880.woff",
     "static/media/outline-icons.woff2": "/static/media/outline-icons.687a4990ea22bb1a49d4.woff2",
-    "static/media/research-hero.svg": "/static/media/research-hero.ea7b70a13256c4803a25.svg",
     "index.html": "/index.html",
-    "main.04a246c6.css.map": "/static/css/main.04a246c6.css.map",
-    "main.5ab00dee.js.map": "/static/js/main.5ab00dee.js.map"
+    "main.5450be28.css.map": "/static/css/main.5450be28.css.map",
+    "main.d5678e4d.js.map": "/static/js/main.d5678e4d.js.map"
   },
   "entrypoints": [
-    "static/css/main.04a246c6.css",
-    "static/js/main.5ab00dee.js"
+    "static/css/main.5450be28.css",
+    "static/js/main.d5678e4d.js"
   ]
 }

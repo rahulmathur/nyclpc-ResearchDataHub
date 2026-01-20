@@ -120,8 +120,12 @@ async function updateRecord(req, res) {
     }
 
     const pk = await getPrimaryKey(tableName) || 'id';
-    const setClause = Object.keys(recordData).map((key, i) => `${key} = $${i + 1}`).join(', ');
-    const values = [...Object.values(recordData), id];
+    // Exclude PK from updates to avoid FK violations (e.g. hub_projects -> lnk_project_site)
+    const { [pk]: _ignore, ...updateData } = recordData;
+    const updateKeys = Object.keys(updateData);
+    if (updateKeys.length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
+    const setClause = updateKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    const values = [...updateKeys.map(k => updateData[k]), id];
     const result = await getPool().query(
       `UPDATE ${tableName} SET ${setClause} WHERE ${pk} = $${values.length} RETURNING *`,
       values
@@ -139,7 +143,20 @@ async function deleteRecord(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
     const pk = await getPrimaryKey(tableName) || 'id';
-    await getPool().query(`DELETE FROM ${tableName} WHERE ${pk} = $1`, [id]);
+    const pool = getPool();
+
+    // hub_projects: remove dependent rows first to avoid lnk_project_site FK violation
+    if (tableName === 'hub_projects') {
+      await pool.query('DELETE FROM lnk_project_site WHERE hub_project_id = $1', [id]);
+      try {
+        await pool.query('DELETE FROM sat_project_site_attributes WHERE hub_project_id = $1', [id]);
+      } catch (e) {
+        if (e.code !== '42P01') throw e;
+      }
+    }
+
+    const result = await pool.query(`DELETE FROM ${tableName} WHERE ${pk} = $1 RETURNING 1`, [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Record not found' });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

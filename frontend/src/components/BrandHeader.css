@@ -1,10 +1,79 @@
-.logo-section { display:flex; align-items:center; gap:0.75rem; }
-.lpc-logo { width: 56px; height: auto; display:block; }
-.app-title { font-size: 1.2rem; font-weight:700; margin-bottom: 0.2rem; }
-.agency-link { display:block; font-size: 0.85rem; color: var(--lpc-blue); text-decoration: none; } .agency-link:hover { text-decoration: underline; }
+.brand-header-item {
+  padding: 0.75rem 1rem !important;
+  margin-right: 2rem !important;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: transform 0.2s ease;
+}
+
+.logo-section:hover {
+  transform: translateX(2px);
+}
+
+.lpc-logo {
+  width: 56px;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  transition: transform 0.3s ease;
+}
+
+.logo-section:hover .lpc-logo {
+  transform: scale(1.05);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.app-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.agency-link {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.2s ease;
+  line-height: 1.3;
+}
+
+.agency-link:hover {
+  color: var(--lpc-blue);
+  text-decoration: underline;
+}
 
 @media (max-width: 768px) {
-  .logo-section { gap: 0.5rem; }
-  .lpc-logo { width: 44px; }
-  .app-title { font-size: 1rem; }
+  .brand-header-item {
+    margin-right: 0.5rem !important;
+    padding: 0.5rem !important;
+  }
+  
+  .logo-section {
+    gap: 0.75rem;
+  }
+  
+  .lpc-logo {
+    width: 44px;
+  }
+  
+  .app-title {
+    font-size: 1.1rem;
+  }
+  
+  .agency-link {
+    font-size: 0.75rem;
+  }
 }
