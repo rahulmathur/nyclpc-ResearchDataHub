@@ -1,8 +1,12 @@
-// frontend/src/components/SitesList.js - UPDATED
-import React, { useEffect, useState } from 'react';
-import { Segment, Header, Table, Button, Icon, Loader, Message, Modal } from 'semantic-ui-react';
+// frontend/src/components/SitesList.js
+import React, { useEffect, useState, useCallback } from 'react';
+import { Segment, Header, Table, Button, Icon, Loader, Message, Modal, Form } from 'semantic-ui-react';
 import axios from 'axios';
 import SiteDetail from './SiteDetail';
+import './SitesList.css';
+
+const PAGE_SIZE_OPTS = [25, 50, 100, 250];
+const INIT_FILTERS = { siteId: '', bin: '', material: '', style: '', use: '', type: '' };
 
 export default function SitesList({ onEdit, onCreate, onChange }) {
   const [sites, setSites] = useState([]);
@@ -11,6 +15,12 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
   const [error, setError] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailSite, setDetailSite] = useState(null);
+
+  const [filters, setFilters] = useState(INIT_FILTERS);
+  const [refOptions, setRefOptions] = useState({ material: [], style: [], use: [], type: [] });
+  const [pageSize, setPageSize] = useState(25);
+  const [offset, setOffset] = useState(0);
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -33,21 +43,74 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
     return () => { mounted = false; };
   }, []);
 
-  const load = async () => {
+  // Load ref_* options for dropdowns
+  useEffect(() => {
+    const refs = [
+      { key: 'material', table: 'ref_material', idCol: 'material_id', nmCol: 'material_nm' },
+      { key: 'style', table: 'ref_style', idCol: 'style_id', nmCol: 'style_nm' },
+      { key: 'use', table: 'ref_use', idCol: 'use_id', nmCol: 'use_nm' },
+      { key: 'type', table: 'ref_type', idCol: 'type_id', nmCol: 'type_nm' },
+    ];
+    refs.forEach(async ({ key, table, idCol, nmCol }) => {
+      try {
+        const res = await axios.get(`/api/table/${table}`, { params: { limit: 500 } });
+        const rows = res.data?.data || [];
+        setRefOptions(prev => ({
+          ...prev,
+          [key]: rows.map(r => ({ key: r[idCol], value: r[nmCol], text: r[nmCol] })),
+        }));
+      } catch (e) {
+        setRefOptions(prev => ({ ...prev, [key]: [] }));
+      }
+    });
+  }, []);
+
+  const load = useCallback(async (overrides = {}) => {
+    const f = overrides.filters ?? filters;
+    const o = overrides.offset ?? offset;
+    const ps = overrides.pageSize ?? pageSize;
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get('/api/table/hub_sites');
+      const params = { limit: ps, offset: o };
+      if (f.siteId) params.siteId = f.siteId;
+      if (f.bin) params.bin = f.bin;
+      if (f.material) params.material = f.material;
+      if (f.style) params.style = f.style;
+      if (f.use) params.use = f.use;
+      if (f.type) params.type = f.type;
+      const res = await axios.get('/api/sites/list', { params });
       setSites(res.data?.data || []);
+      setCount(res.data?.count ?? 0);
     } catch (err) {
       console.error('Failed to load sites', err);
       setError(err.response?.data?.error || err.message || 'Failed to load sites');
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageSize, offset, filters]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // filters omitted so we don't fetch on every keystroke; Search/Clear set offset or call load(overrides)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offset, pageSize]);
+
+  const onSearch = () => {
+    setOffset(0);
+    if (offset === 0) load(); // effect won't run when offset stays 0
+  };
+  const onClear = () => {
+    setFilters(INIT_FILTERS);
+    setOffset(0);
+    if (offset === 0) load({ filters: INIT_FILTERS }); // use cleared filters before state commits
+  };
+  const onPrev = () => setOffset(o => Math.max(0, o - pageSize));
+  const onNext = () => setOffset(o => o + pageSize);
+  const onPageSizeChange = (e) => {
+    setPageSize(Number(e.target.value));
+    setOffset(0);
+  };
 
   const openDetails = (e, s) => {
     if (e) {
@@ -67,7 +130,7 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
     if (!window.confirm(`Delete site "${s.name || s.id}"?`)) return;
     try {
       await axios.delete(`/api/table/hub_sites/${s.id || s.hub_site_id}`);
-      await load();
+      load();
       if (onChange) onChange();
     } catch (err) {
       console.error('Delete failed', err);
@@ -75,9 +138,79 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
     }
   };
 
+  const rangeStart = count === 0 ? 0 : offset + 1;
+  const rangeEnd = count === 0 ? 0 : Math.min(offset + pageSize, count);
+  const canPrev = offset > 0;
+  const canNext = offset + pageSize < count;
+
   return (
     <Segment>
       <Header as="h3">Sites <Button primary size="small" onClick={() => { if (onCreate) onCreate(); }} style={{ float: 'right' }}>New Site</Button></Header>
+
+      {/* Filter sites */}
+      <Segment className="sites-list-filter" secondary>
+        <Header as="h4" style={{ marginTop: 0 }}>Filter sites</Header>
+        <Form>
+          <Form.Group widths="equal">
+            <Form.Input
+              placeholder="Site ID"
+              value={filters.siteId}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, siteId: value || '' }))}
+            />
+            <Form.Input
+              placeholder="BIN"
+              value={filters.bin}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, bin: value || '' }))}
+            />
+          </Form.Group>
+          <Form.Group widths="equal">
+            <Form.Select
+              placeholder="Material"
+              clearable
+              selection
+              options={refOptions.material}
+              value={filters.material || ''}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, material: value ?? '' }))}
+            />
+            <Form.Select
+              placeholder="Style"
+              clearable
+              selection
+              options={refOptions.style}
+              value={filters.style || ''}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, style: value ?? '' }))}
+            />
+            <Form.Select
+              placeholder="Use"
+              clearable
+              selection
+              options={refOptions.use}
+              value={filters.use || ''}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, use: value ?? '' }))}
+            />
+            <Form.Select
+              placeholder="Type"
+              clearable
+              selection
+              options={refOptions.type}
+              value={filters.type || ''}
+              onChange={(e, { value }) => setFilters(f => ({ ...f, type: value ?? '' }))}
+            />
+          </Form.Group>
+          <Form.Group>
+            <Form.Field>
+              <Button primary icon="search" content="Search" onClick={onSearch} />
+              <Button icon="erase" content="Clear" onClick={onClear} style={{ marginLeft: 8 }} />
+            </Form.Field>
+          </Form.Group>
+        </Form>
+      </Segment>
+
+      {/* Results summary */}
+      <div className="sites-list-summary">
+        {!loading && (count === 0 ? 'No sites found' : `Showing ${rangeStart}–${rangeEnd} of ${count} sites`)}
+      </div>
+
       {loading ? <Loader active inline="centered" /> : null}
       {error && <Message negative content={error} />}
 
@@ -97,7 +230,7 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
               <Table.Cell>
                 <button
                   onClick={(e) => openDetails(e, s)}
-                  style={{ textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', color: '#0066cc', padding: 0, font: 'inherit' }}
+                  className="site-id-link"
                   aria-label={`View details for site ${s.id || s.hub_site_id}`}
                 >
                   {s.id || s.hub_site_id}
@@ -118,6 +251,26 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
           ))}
         </Table.Body>
       </Table>
+
+      {/* Pagination */}
+      <div className="sites-pagination">
+        <div className="sites-pagination-left">
+          <label>
+            <select value={pageSize} onChange={onPageSizeChange} aria-label="Sites per page">
+              {PAGE_SIZE_OPTS.map(n => (
+                <option key={n} value={n}>{n} per page</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="sites-pagination-center">
+          <Button onClick={onPrev} disabled={!canPrev}>← Previous</Button>
+          <span className="pagination-info">
+            Showing {rangeStart}–{rangeEnd} of {count} sites
+          </span>
+          <Button onClick={onNext} disabled={!canNext}>Next →</Button>
+        </div>
+      </div>
 
       <Modal
         open={detailOpen}

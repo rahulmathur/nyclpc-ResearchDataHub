@@ -72,6 +72,39 @@ app.get('/api/tables', async (req, res) => {
   }
 });
 
+// Batch site geometries: fetch from sat_site_geometry for given hub_site_ids (used by project map; avoids limit/ordering of generic table API)
+app.post('/api/sites/geometries', async (req, res) => {
+  const { siteIds } = req.body || {};
+  const { getPool } = require('./db');
+  try {
+    const pool = getPool();
+    if (!pool) return res.status(500).json({ error: 'Database not connected' });
+    if (!Array.isArray(siteIds) || siteIds.length === 0) return res.json({ success: true, data: [] });
+    const ids = siteIds.map((id) => parseInt(String(id), 10)).filter((n) => !isNaN(n));
+    if (ids.length === 0) return res.json({ success: true, data: [] });
+
+    const geomColRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+    );
+    const geomCol = geomColRes.rows[0]?.column_name;
+    if (!geomCol || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(geomCol)) return res.json({ success: true, data: [] });
+
+    const result = await pool.query(
+      `SELECT hub_site_id,
+        CASE WHEN ST_SRID("${geomCol}") IS NOT NULL AND ST_SRID("${geomCol}") > 0
+          THEN ST_AsGeoJSON(ST_Transform("${geomCol}", 4326))::text
+          ELSE ST_AsGeoJSON("${geomCol}")::text
+        END AS geometry
+       FROM sat_site_geometry WHERE hub_site_id = ANY($1)`,
+      [ids]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (e) {
+    console.error('POST /api/sites/geometries', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Site geometry: fetch from sat_site_geometry by hub_site_id (avoids limit/offset of generic table API)
 app.get('/api/sites/:siteId/geometry', async (req, res) => {
   const { siteId } = req.params;
@@ -123,6 +156,7 @@ app.get('/api/projects/:projectId/site-attributes', projectsController.getProjec
 app.put('/api/projects/:projectId/site-attributes', projectsController.updateProjectSiteAttributes);
 app.get('/api/projects/:projectId/sites-with-attributes', projectsController.getSitesWithAttributes);
 app.get('/api/site-attributes', projectsController.getSiteAttributes);
+app.get('/api/sites/list', projectsController.getSitesList);
 app.get('/api/sites', projectsController.getAllSites);
 
 // Table/columns/projects routes are now implemented in separate controllers (see ./controllers/*)
