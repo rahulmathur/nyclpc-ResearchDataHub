@@ -1,5 +1,8 @@
 // Cloudflare Pages Function to proxy /api/* to Beanstalk backend
 // Set BACKEND_URL and optionally ALLOWED_ORIGINS in Cloudflare Pages → Settings → Environment variables
+//
+// BACKEND_URL: use the Beanstalk URL without a port (e.g. http://xxx.elasticbeanstalk.com).
+// Beanstalk’s public endpoint is port 80; the app’s PORT=5000 is internal. Do not add :5000.
 
 const DEFAULT_BACKEND = 'http://NYCLPC-RDH-Staging-env-1.eba-2rxzfa4v.us-east-1.elasticbeanstalk.com';
 
@@ -41,7 +44,28 @@ export async function onRequest(context) {
     body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.arrayBuffer() : undefined,
   });
 
-  const response = await fetch(backendRequest);
+  let response;
+  try {
+    response = await fetch(backendRequest);
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        status: 'error',
+        database: 'disconnected',
+        error: 'Backend unreachable',
+        detail: err?.message || 'fetch failed',
+      }),
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': corsOrigin,
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+      }
+    );
+  }
 
   const resHeaders = new Headers();
   const resCt = response.headers.get('Content-Type');

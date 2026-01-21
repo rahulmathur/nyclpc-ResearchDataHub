@@ -41,9 +41,20 @@ function App() {
   const checkConnection = async () => {
     try {
       const response = await axios.get('/api/health');
-      setConnectionStatus(response.data);
+      const data = response.data || {};
+      setConnectionStatus({
+        ...data,
+        _hint: data.database === 'connected' ? null : 'Backend returned database: ' + (data.database || 'missing'),
+      });
     } catch (error) {
-      setConnectionStatus({ status: 'error', database: 'disconnected' });
+      const status = error.response?.status;
+      const body = error.response?.data;
+      const msg = [status && `HTTP ${status}`, body?.error || body?.detail || body?.message, error.message].filter(Boolean).join(' — ');
+      setConnectionStatus({
+        status: 'error',
+        database: 'disconnected',
+        _hint: msg || 'Request failed',
+      });
     }
   };
 

@@ -101,7 +101,9 @@ The backend automatically detects RDS hosts and uses the CA certificate if prese
 4) Set environment variable: `REACT_APP_API_URL=http://<your-beanstalk-url>.elasticbeanstalk.com`
    - Use `http://` if Beanstalk doesn't have HTTPS configured (workaround for SSL issues)
    - Use `https://` if Beanstalk has proper HTTPS/SSL setup
-5) Deploy and test that the UI calls the Beanstalk backend (check network tab in browser dev tools).
+   - **Do not add a port** (e.g. no `:5000`). Beanstalk’s public endpoint is on port 80; the app’s `PORT=5000` is only used internally.
+5) If using the `functions/api/[[path]].js` proxy, set `BACKEND_URL` to the same URL (no port), or leave unset to use the default.
+6) Deploy and test that the UI calls the Beanstalk backend (check network tab in browser dev tools).
 
 **Note on HTTPS/HTTP:** If your Beanstalk environment doesn't have HTTPS properly configured (common with default Elastic Beanstalk setups), use `http://` in `REACT_APP_API_URL` as a workaround. The Cloudflare function will also default to `http://` if no protocol is specified.
 
@@ -121,7 +123,7 @@ npm run dev:staging  # uses .env.staging
 npm run smoke        # health + projects/sites
 
 cd ../frontend && npm install
-npm start            # http://localhost:3000, proxies to http://localhost:5000
+npm start            # http://localhost:3000, proxies to http://localhost:5001
 ```
 
 ## Troubleshooting
