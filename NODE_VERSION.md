@@ -41,10 +41,9 @@ When switching branches, make sure to:
 2. Run `nvm use` in the backend directory
 3. Verify with `node --version`
 
-## Elastic Beanstalk Configuration
+## Staging (EC2)
 
-- **Development:** Not deployed to EB
-- **Staging:** Configured for Node.js 20 in Elastic Beanstalk platform
+- **Staging:** Backend is deployed manually on EC2; use Node.js 20.x to match the server.
 
 ## Notes
 

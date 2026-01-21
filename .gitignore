@@ -42,3 +42,6 @@ lerna-debug.log*
 
 # Data Migrations SQL
 *.sql
+
+# Deployment artifacts
+backend-deploy.zip

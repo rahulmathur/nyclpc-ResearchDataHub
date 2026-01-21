@@ -1,16 +1,16 @@
-// Cloudflare Pages Function to proxy /api/* to Beanstalk backend
+// Cloudflare Pages Function to proxy /api/* to the backend
 // Set BACKEND_URL and optionally ALLOWED_ORIGINS in Cloudflare Pages → Settings → Environment variables
 //
-// BACKEND_URL: use the Beanstalk URL without a port (e.g. http://xxx.elasticbeanstalk.com).
-// Beanstalk’s public endpoint is port 80; the app’s PORT=5000 is internal. Do not add :5000.
+// BACKEND_URL: base URL including any path prefix (no trailing slash).
+// Staging (EC2): https://acris.nyclpc.com/nyclpcrdh/v1 — /api/health becomes .../nyclpcrdh/v1/api/health
 
-const DEFAULT_BACKEND = 'http://NYCLPC-RDH-Staging-env-1.eba-2rxzfa4v.us-east-1.elasticbeanstalk.com';
+const DEFAULT_BACKEND = 'https://acris.nyclpc.com/nyclpcrdh/v1';
 
 export async function onRequest(context) {
   const { request, env } = context;
 
   const raw = (env?.BACKEND_URL || DEFAULT_BACKEND).trim();
-  const base = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `http://${raw}`;
+  const base = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
 
   const url = new URL(request.url);
   const backendUrl = `${base}${url.pathname}${url.search}`;
