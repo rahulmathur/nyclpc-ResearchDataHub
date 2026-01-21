@@ -40,6 +40,78 @@ The staging API is deployed manually on EC2 at `https://acris.nyclpc.com/nyclpcr
 
 **Verify:** `curl https://acris.nyclpc.com/nyclpcrdh/v1/api/health` — expect `{"status":"ok","database":"connected","dbType":"postgresql"}`.
 
+### Redeploy Backend to EC2
+
+Use git on EC2 to get and update the code. Replace `USER@EC2_HOST` with your SSH user and host, and `REPO_URL` with your repo (e.g. `https://github.com/YOUR_ORG_OR_USER/nyclpc-ResearchDataHub.git`).
+
+---
+
+#### First-time setup on EC2 (clone once)
+
+SSH in and clone the `staging` branch:
+
+```bash
+cd /path/to/parent   # e.g. /home/ec2-user
+git clone -b staging REPO_URL nyclpc-ResearchDataHub
+cd nyclpc-ResearchDataHub/backend
+```
+
+- Create `backend/.env` from `backend/.env.example` (or copy from another server) with `DB_*`, `PORT`, etc.
+- If using RDS SSL: ensure `ca_certificate_aws-rds.pem` is in `backend/`.
+- Then: `npm ci --production` and start the app (PM2, systemd, or `node server.js`).
+
+---
+
+#### Subsequent redeploys (git pull on EC2)
+
+1. **SSH in:** `ssh USER@EC2_HOST`
+
+2. **Go to repo and pull latest `staging`**
+   ```bash
+   cd /path/to/nyclpc-ResearchDataHub
+   git fetch origin
+   git checkout staging
+   git pull origin staging
+   ```
+   If you get `fatal: 'origin' does not appear to be a git repository`, add it:
+   ```bash
+   git remote add origin REPO_URL
+   git fetch origin
+   git checkout -b staging origin/staging
+   git pull origin staging
+   ```
+
+3. **Install deps and restart**
+   ```bash
+   cd backend
+   npm ci --production
+   ```
+   If you use Node via `nvm`: `nvm use` or `nvm use 20` before `npm ci`.  
+   Restart the app:
+   - **PM2:** `pm2 restart nyclpc-rdh` or `pm2 restart all`
+   - **systemd:** `sudo systemctl restart nyclpc-rdh`
+   - **screen/tmux or direct:** stop the process (Ctrl+C), then `node server.js` or `npm start`
+
+   (.env and `ca_certificate_aws-rds.pem` stay as-is between deploys; only change them when updating config.)
+
+---
+
+#### Verify
+
+4. **From your Mac (or any machine):**
+   ```bash
+   curl -s "https://acris.nyclpc.com/nyclpcrdh/v1/api/health"
+   ```
+   Expect: `{"status":"ok","database":"connected","dbType":"postgresql"}`.
+
+5. **Sites route (confirms `/api/sites/list` is deployed):**
+   ```bash
+   curl -s "https://acris.nyclpc.com/nyclpcrdh/v1/api/sites/list?limit=5&offset=0"
+   ```
+   Expect: `{"success":true,"data":[...],"count":...}`.
+
+6. **In the browser:** Open the staging frontend and confirm the Sites page loads without 404s.
+
 ## Frontend on Cloudflare Pages (staging)
 1) New Pages project from the repo, root `frontend`.
 2) Build command: `npm install && npm run build`

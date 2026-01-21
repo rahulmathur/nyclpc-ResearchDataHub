@@ -1,4 +1,3 @@
-// frontend/src/components/SitesList.js
 import React, { useEffect, useState, useCallback } from 'react';
 import { Segment, Header, Table, Button, Icon, Loader, Message, Modal, Form } from 'semantic-ui-react';
 import axios from 'axios';

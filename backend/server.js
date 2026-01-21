@@ -31,7 +31,6 @@ let db;
 const initializeDatabase = async () => {
   try {
     console.log('Connecting to PostgreSQL...');
-    console.log('DB_HOST:', process.env.DB_HOST);
     const { Pool } = require('pg');
 
     const poolConfig = {
@@ -170,10 +169,6 @@ app.get('/api/projects/:projectId/sites-with-attributes', projectsController.get
 app.get('/api/site-attributes', projectsController.getSiteAttributes);
 app.get('/api/sites/list', projectsController.getSitesList);
 app.get('/api/sites', projectsController.getAllSites);
-
-// Table/columns/projects routes are now implemented in separate controllers (see ./controllers/*)
-
-// Sites for a project handled by projectsController.getProjectSites
 
 // Health check
 app.get('/api/health', async (req, res) => {

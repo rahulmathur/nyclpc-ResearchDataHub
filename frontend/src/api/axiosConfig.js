@@ -11,20 +11,7 @@ axios.defaults.baseURL = baseURL;
 // Set default headers
 axios.defaults.headers.common['Content-Type'] = 'application/json';
 
-// Request interceptor for debugging (optional)
-axios.interceptors.request.use(
-  (config) => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL || ''}${config.url}`);
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor for error handling (optional)
+// Response interceptor: log errors in development
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
