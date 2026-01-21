@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Table, Loader } from 'semantic-ui-react';
 import axios from 'axios';
 import './SiteDetail.css';
+import SiteDetailMap from './SiteDetailMap';
 
-export default function SiteDetail({ site, onBack, backLabel = '← Back to Sites' }) {
+export default function SiteDetail({ site, onBack, backLabel = '← Back to Sites', hideSatelliteData = false }) {
   const [siteDetails, setSiteDetails] = useState(null);
   const [tables, setTables] = useState([]);
   const [satelliteTables, setSatelliteTables] = useState({});
@@ -12,11 +13,15 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedTables, setExpandedTables] = useState([]);
-  const mapRef = useRef();
-  const mapViewRef = useRef();
 
-  // Load all tables and filter for satellite tables
+  // Load all tables and filter for satellite tables (skip when hideSatelliteData – e.g. from project's selected sites)
   useEffect(() => {
+    if (hideSatelliteData) {
+      setSiteDetails(site);
+      setTables([]);
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     (async () => {
       try {
@@ -32,11 +37,12 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
       } catch (err) {
         console.error('Failed to load tables', err);
         setError('Failed to load satellite tables');
+        setLoading(false);
       }
     })();
-    
+
     return () => { mounted = false; };
-  }, [site]);
+  }, [site, hideSatelliteData]);
 
   // Load ref_attributes for resolving attr_<id> to attribute_nm (Details card) and for sat_site_attributes
   useEffect(() => {
@@ -62,236 +68,102 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
 
   // Load data for each satellite table and reference tables
   useEffect(() => {
-    if (!tables.length) return;
-    
+    if (!tables.length) {
+      setLoading(false);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       try {
         const data = {};
         const refs = {};
         const siteId = site.hub_site_id || site.id;
-        
+
+        // Fetch satellite tables in parallel, filtered by this site (hub_site_id)
+        // Use allSettled so one missing/broken table does not fail the whole load
+        const tablesSettled = await Promise.allSettled(
+          tables.map(t => axios.get(`/api/table/${t}`, { params: { limit: 1000, hub_site_id: siteId } }))
+        );
+
+        const needColumnFetch = [];
+        for (let i = 0; i < tables.length; i++) {
+          const res = tablesSettled[i];
+          const allRows = (res.status === 'fulfilled' ? res.value?.data?.data : null) || [];
+          const filteredRows = allRows.filter(row => String(row.hub_site_id) === String(siteId));
+
+          data[tables[i]] = { columns: [], rows: filteredRows };
+
+          if (allRows.length > 0) {
+            data[tables[i]].columns = Object.keys(allRows[0]);
+          } else {
+            needColumnFetch.push(tables[i]);
+          }
+        }
+
+        const colRes = await Promise.all(
+          needColumnFetch.map(t => axios.get(`/api/columns/${t}`).catch(() => ({ data: { columns: [] } })))
+        );
+        needColumnFetch.forEach((t, j) => {
+          data[t].columns = colRes[j].data?.columns?.map(c => c.column_name) || [];
+        });
+
+        // Collect ref table names from *_id columns (except hub_site_id)
+        // attribute_id -> ref_attributes (irregular name); others: material_id -> ref_material, etc.
+        const refTableNames = [];
         for (const tableName of tables) {
-          // Fetch all data first
-          const res = await axios.get(`/api/table/${tableName}`);
-          const allRows = res.data?.data || [];
-          
-          // Filter rows by hub_site_id
-          const filteredRows = allRows.filter(row => row.hub_site_id === siteId);
-          
-          if (mounted) {
-            data[tableName] = {
-              columns: [],
-              rows: filteredRows
-            };
-            
-            // Get columns for this table
-            if (allRows.length > 0) {
-              data[tableName].columns = Object.keys(allRows[0]);
-            } else {
-              try {
-                const colRes = await axios.get(`/api/columns/${tableName}`);
-                data[tableName].columns = colRes.data?.columns?.map(c => c.column_name) || [];
-              } catch (e) {
-                data[tableName].columns = [];
-              }
-            }
-            
-            // ref_attributes is loaded in a separate effect (refAttributesLookup); no need to fetch here
-
-            // Find and load reference tables for foreign keys
-            for (const column of data[tableName].columns) {
-              if (column.endsWith('_id') && column !== 'hub_site_id') {
-                const refTableName = 'ref_' + column.substring(0, column.length - 3); // remove '_id' and add 'ref_'
-                
-                // Check if we haven't already loaded this reference table
-                if (!refs[refTableName]) {
-                  try {
-                    const refRes = await axios.get(`/api/table/${refTableName}`, { params: { limit: 5000 } });
-                    const refData = refRes.data?.data || [];
-                    const prefix = column.substring(0, column.length - 3); // e.g. 'material', 'style', 'type', 'use'
-                    const idCol = column;
-
-                    // Resolve name column: ref tables use {prefix}_nm (e.g. material_nm, style_nm, type_nm, use_nm)
-                    // or sometimes {prefix}_name / 'name' — pick first that exists in ref data
-                    const candidateNameCols = [prefix + '_nm', prefix + '_name', 'name'];
-                    const firstRow = refData[0];
-                    const refKeys = firstRow ? Object.keys(firstRow) : [];
-                    const nameCol = candidateNameCols.find(k => refKeys.includes(k)) || (prefix + '_nm');
-
-                    const lookup = {};
-                    refData.forEach(row => {
-                      if (row[idCol] != null && row[nameCol] != null) {
-                        lookup[row[idCol]] = row[nameCol];
-                      }
-                    });
-
-                    if (mounted) {
-                      refs[refTableName] = lookup;
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      refs[refTableName] = {};
-                    }
-                  }
-                }
-              }
+          for (const col of data[tableName]?.columns || []) {
+            if (col.endsWith('_id') && col !== 'hub_site_id') {
+              const refName = col === 'attribute_id' ? 'ref_attributes' : 'ref_' + col.substring(0, col.length - 3);
+              refTableNames.push(refName);
             }
           }
         }
-        
+
+        const refNames = [...new Set(refTableNames)];
+        const refRes = await Promise.all(
+          refNames.map(name =>
+            axios.get(`/api/table/${name}`, { params: { limit: 5000 } }).catch(() => ({ data: { data: [] } }))
+          )
+        );
+
+        refNames.forEach((refTableName, idx) => {
+          const refData = refRes[idx]?.data?.data || [];
+          const prefix = refTableName.replace(/^ref_/, '');
+          // ref_attributes uses attribute_id/attribute_nm, not attributes_id
+          const { idCol, candidates } = refTableName === 'ref_attributes'
+            ? { idCol: 'attribute_id', candidates: ['attribute_nm', 'attribute_name', 'name'] }
+            : { idCol: prefix + '_id', candidates: [prefix + '_nm', prefix + '_name', 'name'] };
+          const firstRow = refData[0];
+          const refKeys = firstRow ? Object.keys(firstRow) : [];
+          const nameCol = candidates.find(k => refKeys.includes(k)) || candidates[0];
+          const lookup = {};
+          refData.forEach(row => {
+            if (row[idCol] != null && row[nameCol] != null) {
+              lookup[row[idCol]] = row[nameCol];
+            }
+          });
+          refs[refTableName] = lookup;
+        });
+
         if (mounted) {
           setSatelliteTables(data);
           setRefTables(refs);
           const withRecords = Object.keys(data).filter(t => (data[t]?.rows?.length ?? 0) > 0);
           setExpandedTables(withRecords);
-          setLoading(false);
         }
       } catch (err) {
         console.error('Failed to load satellite table data', err);
         if (mounted) {
           setError('Failed to load some satellite tables');
-          setLoading(false);
         }
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
-    
+
     return () => { mounted = false; };
   }, [tables, site]);
-
-  // Initialize ArcGIS map and load geometry
-  useEffect(() => {
-    if (!site) return;
-
-    let retries = 0;
-    let viewInstance = null;
-
-    const initializeMap = (Map, MapView, Extent, Graphic, Polygon, Polyline, Point) => {
-      if (!mapRef.current) return;
-      try {
-        if (mapViewRef.current) {
-          try { mapViewRef.current.destroy(); } catch (e) {}
-        }
-        const map = new Map({ basemap: 'arcgis-streets' });
-        const view = new MapView({
-          container: mapRef.current,
-          map,
-          extent: new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } })
-        });
-        mapViewRef.current = view;
-        viewInstance = view;
-
-        view.when(() => {
-          (async () => {
-              try {
-                const siteId = site.hub_site_id || site.id;
-                const response = await axios.get(`/api/sites/${siteId}/geometry`);
-                const siteGeoms = response.data?.data || [];
-                view.graphics.removeAll();
-                let bounds = null;
-
-                const getCentroid = (geomData) => {
-                  try {
-                    if (geomData.type === 'Point') {
-                      return { x: geomData.coordinates[0], y: geomData.coordinates[1] };
-                    } else if (geomData.type === 'LineString') {
-                      const mid = Math.floor(geomData.coordinates.length / 2);
-                      return { x: geomData.coordinates[mid][0], y: geomData.coordinates[mid][1] };
-                    } else if (geomData.type === 'Polygon') {
-                      const ring = geomData.coordinates[0] || [];
-                      let x = 0, y = 0;
-                      ring.forEach(coord => { x += coord[0]; y += coord[1]; });
-                      return { x: x / ring.length, y: y / ring.length };
-                    } else if (geomData.type === 'MultiPolygon') {
-                      let x = 0, y = 0, count = 0;
-                      geomData.coordinates.forEach(poly => {
-                        const ring = poly[0] || [];
-                        ring.forEach(coord => { x += coord[0]; y += coord[1]; count++; });
-                      });
-                      return count > 0 ? { x: x / count, y: y / count } : null;
-                    }
-                    return null;
-                  } catch (e) { return null; }
-                };
-
-                const addGraphic = (geometry, symbol) => {
-                  if (geometry && symbol) {
-                    view.graphics.add(new Graphic({ geometry, symbol }));
-                    if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
-                  }
-                };
-                const fillSymbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
-                const lineSymbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
-                const pointSymbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
-                const pinSymbol = { type: 'simple-marker', style: 'circle', color: [0, 113, 188], size: 18, outline: { color: [255, 255, 255], width: 3 } };
-
-                siteGeoms.forEach((row) => {
-                  try {
-                    let geomData = row.geometry ?? row.shape ?? row.geom ?? row.the_geom;
-                    if (typeof geomData === 'string') geomData = JSON.parse(geomData);
-                    if (!geomData || !geomData.type) return;
-                    const spatialRef = (geomData.crs?.properties?.name === 'EPSG:2263') ? { wkid: 2263 } : { wkid: 4326 };
-
-                    if (geomData.type === 'MultiPolygon') {
-                      geomData.coordinates.forEach((poly) => {
-                        const ring = poly[0];
-                        if (ring && ring.length) {
-                          const geometry = new Polygon({ rings: [ring], spatialReference: spatialRef });
-                          addGraphic(geometry, fillSymbol);
-                        }
-                      });
-                    } else if (geomData.type === 'Polygon') {
-                      const geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
-                      addGraphic(geometry, fillSymbol);
-                    } else if (geomData.type === 'LineString') {
-                      const geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
-                      addGraphic(geometry, lineSymbol);
-                    } else if (geomData.type === 'Point') {
-                      const geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
-                      addGraphic(geometry, pointSymbol);
-                    }
-
-                    const centroid = getCentroid(geomData);
-                    if (centroid) {
-                      const pinGeometry = new Point({ x: centroid.x, y: centroid.y, spatialReference: spatialRef });
-                      view.graphics.add(new Graphic({ geometry: pinGeometry, symbol: pinSymbol }));
-                      if (pinGeometry.extent) bounds = bounds ? bounds.union(pinGeometry.extent) : pinGeometry.extent;
-                    }
-                  } catch (e) { /* skip invalid geometry */ }
-                });
-                if (bounds && siteGeoms.length > 0) view.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
-              } catch (err) { console.error('Geometry load error:', err); }
-            })();
-          }).catch((error) => {
-            console.error('Error initializing map view:', error);
-          });
-      } catch (error) {
-        console.error('Error creating map:', error);
-      }
-    };
-
-    const tryInitialize = () => {
-      retries++;
-      if (!mapRef.current || !window.require) {
-        if (retries < 30) setTimeout(tryInitialize, 100);
-        return;
-      }
-      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent', 'esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], initializeMap, (err) => console.error('ArcGIS modules:', err));
-    };
-    tryInitialize();
-    
-    return () => {
-      if (viewInstance) {
-        try {
-          viewInstance.destroy();
-          viewInstance = null;
-          mapViewRef.current = null;
-        } catch (error) {
-          console.error('Error destroying map view:', error);
-        }
-      }
-    };
-  }, [site]);
 
   if (!site) return null;
   // Use siteDetails when available (after /api/tables), else site so the map container exists from first render
@@ -338,18 +210,17 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
             ))}
           </div>
         </div>
-        <div className="site-detail-map-wrap">
-          <span className="site-detail-map-label">Location</span>
-          <div ref={mapRef} className="site-detail-map" />
-        </div>
+        <SiteDetailMap site={site} />
       </section>
 
-      {tablesWithRecords.length > 0 && (
+      {tables.length > 0 && (
         <section className="site-detail-satellite">
-          <div className="site-detail-satellite-header">Satellite Data · {tablesWithRecords.length} table{tablesWithRecords.length !== 1 ? 's' : ''}</div>
+          <div className="site-detail-satellite-header">
+            {loading ? 'Satellite Data · loading…' : (tablesWithRecords.length > 0 ? `Satellite Data · ${tablesWithRecords.length} table${tablesWithRecords.length !== 1 ? 's' : ''}` : 'Satellite Data')}
+          </div>
           <div className="site-detail-satellite-body">
             {loading && <Loader active inline="centered" />}
-            {!loading && tablesWithRecords.map(tableName => (
+            {!loading && tablesWithRecords.length > 0 && tablesWithRecords.map(tableName => (
               <div key={tableName} className={`site-detail-table-block${expandedTables.includes(tableName) ? ' expanded' : ''}`}>
                 <button
                   type="button"
@@ -403,7 +274,7 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                                 {displayCols.map(col => {
                                   let displayValue = row[col];
                                   if (col.endsWith('_id') && row[col]) {
-                                    const refTableName = 'ref_' + col.substring(0, col.length - 3);
+                                    const refTableName = col === 'attribute_id' ? 'ref_attributes' : 'ref_' + col.substring(0, col.length - 3);
                                     const lookup = refTables[refTableName] || {};
                                     displayValue = lookup[row[col]] || row[col];
                                   }
@@ -426,6 +297,9 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
                 })()}
               </div>
             ))}
+            {!loading && tablesWithRecords.length === 0 && (
+              <div className="site-detail-empty">No records for this site in any satellite table.</div>
+            )}
           </div>
         </section>
       )}

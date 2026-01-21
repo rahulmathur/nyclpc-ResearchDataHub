@@ -3,7 +3,7 @@ const { getEnumMap, validateTableName, getPrimaryKey } = require('../db/utils');
 
 async function getTableData(req, res) {
   const { tableName } = req.params;
-  let { limit = 100, offset = 0, q = null, fastCount = 'false' } = req.query;
+  let { limit = 100, offset = 0, q = null, fastCount = 'false', hub_site_id: hubSiteIdParam } = req.query;
   limit = parseInt(limit, 10) || 100;
   offset = parseInt(offset, 10) || 0;
   const MAX_LIMIT = parseInt(process.env.MAX_PAGE_LIMIT || '1000', 10);
@@ -20,31 +20,39 @@ async function getTableData(req, res) {
     );
     const geomCols = geomColRes.rows.map(r => r.column_name);
 
+    // Build SELECT clause and get all columns (needed early to check for hub_site_id)
+    const colRes = await getPool().query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`,
+      [tableName]
+    );
+    const allCols = colRes.rows.map(r => r.column_name);
+    const hasHubSiteId = allCols.includes('hub_site_id');
+    const hubSiteId = hasHubSiteId && hubSiteIdParam != null && String(hubSiteIdParam).trim() !== '' ? String(hubSiteIdParam).trim() : null;
+
     let where = '';
     const params = [];
     if (q) {
-      const colRes = await getPool().query(
+      const textColRes = await getPool().query(
         `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND data_type IN ('character varying','text','character')`,
         [tableName]
       );
-      const textCols = colRes.rows.map(r => r.column_name);
+      const textCols = textColRes.rows.map(r => r.column_name);
       if (textCols.length > 0) {
         const likeClauses = textCols.map((c, i) => `${c} ILIKE $${i + 1}`);
         where = `WHERE (${likeClauses.join(' OR ')})`;
         for (let i = 0; i < textCols.length; i++) params.push(`%${q}%`);
       }
     }
+    if (hubSiteId) {
+      params.push(hubSiteId);
+      const clause = `hub_site_id = $${params.length}`;
+      where = where ? `${where} AND ${clause}` : `WHERE ${clause}`;
+    }
 
     const pk = await getPrimaryKey(tableName);
     const orderBy = pk ? `ORDER BY ${pk} ASC` : '';
 
-    // Build SELECT clause, converting geometry columns to GeoJSON
-    const colRes = await getPool().query(
-      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`,
-      [tableName]
-    );
-    const allCols = colRes.rows.map(r => r.column_name);
-    const selectCols = allCols.map(col => 
+    const selectCols = allCols.map(col =>
       geomCols.includes(col) ? `ST_AsGeoJSON(${col})::text AS ${col}` : col
     ).join(', ');
 

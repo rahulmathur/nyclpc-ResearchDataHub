@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Segment, Header, Table, Button, Icon, Loader, Message, Modal, Form } from 'semantic-ui-react';
+import { Segment, Header, Table, Button, Icon, Loader, Message, Form } from 'semantic-ui-react';
 import axios from 'axios';
-import SiteDetail from './SiteDetail';
 import './SitesList.css';
 
 const PAGE_SIZE_OPTS = [25, 50, 100, 250];
@@ -12,8 +11,6 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
   const [schemaFields, setSchemaFields] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailSite, setDetailSite] = useState(null);
 
   const [filters, setFilters] = useState(INIT_FILTERS);
   const [refOptions, setRefOptions] = useState({ material: [], style: [], use: [], type: [] });
@@ -109,20 +106,6 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
   const onPageSizeChange = (e) => {
     setPageSize(Number(e.target.value));
     setOffset(0);
-  };
-
-  const openDetails = (e, s) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    setDetailSite(s);
-    setDetailOpen(true);
-  };
-
-  const closeDetails = () => {
-    setDetailOpen(false);
-    setDetailSite(null);
   };
 
   const handleDelete = async (s) => {
@@ -228,7 +211,11 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
             <Table.Row key={s.id || s.hub_site_id}>
               <Table.Cell>
                 <button
-                  onClick={(e) => openDetails(e, s)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onEdit) onEdit(s);
+                  }}
                   className="site-id-link"
                   aria-label={`View details for site ${s.id || s.hub_site_id}`}
                 >
@@ -239,7 +226,7 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
                 <Table.Cell key={field}>{s[field]}</Table.Cell>
               ))}
               <Table.Cell>
-                <Button icon size="small" onClick={() => { if (onEdit) onEdit(s); }} title="View Details">
+                <Button icon size="small" onClick={() => onEdit?.(s)} title="View Details">
                   <Icon name="eye" />
                 </Button>
                 <Button icon color="red" size="small" onClick={() => handleDelete(s)} title="Delete">
@@ -271,16 +258,6 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
         </div>
       </div>
 
-      <Modal
-        open={detailOpen}
-        onClose={closeDetails}
-        size="fullscreen"
-        closeIcon
-      >
-        <Modal.Content scrolling>
-          {detailSite && <SiteDetail site={detailSite} onBack={closeDetails} />}
-        </Modal.Content>
-      </Modal>
     </Segment>
   );
 }
