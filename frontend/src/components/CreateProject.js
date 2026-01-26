@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Segment, Header, Form, Button, Grid, Message } from 'semantic-ui-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Segment, Header, Form, Button, Grid, Message, Icon } from 'semantic-ui-react';
 import axios from 'axios';
 import './CreateProject.css';
+import CreateProjectMap from './CreateProjectMap';
 import SiteSelectionModal from './SiteSelectionModal';
 import AddSitesModal from './AddSitesModal';
 import AttributeSelectionModal from './AttributeSelectionModal';
@@ -26,51 +27,11 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
   const [selectedSites, setSelectedSites] = useState([]);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [selectedAttributes, setSelectedAttributes] = useState([]);
-  const [mapReady, setMapReady] = useState(false);
-
-  const mapRef = useRef();
-  const mapViewRef = useRef();
-
-  // Initialize ArcGIS map
-  useEffect(() => {
-    let retries = 0;
-    let viewInstance = null;
-
-    const initializeMap = (Map, MapView, Extent) => {
-      if (!mapRef.current) return;
-      try {
-        if (mapViewRef.current) {
-          try { mapViewRef.current.destroy(); } catch (e) {}
-        }
-        const map = new Map({ basemap: 'arcgis-streets' });
-        const nycExtent = new Extent({ xmin: -74.256, ymin: 40.496, xmax: -73.700, ymax: 40.916, spatialReference: { wkid: 4326 } });
-        const view = new MapView({ container: mapRef.current, map, extent: nycExtent });
-        mapViewRef.current = view;
-        viewInstance = view;
-        view.on('click', (event) => {
-          const point = view.toMap({ x: event.x, y: event.y });
-          setPosition({ lat: point.latitude, lng: point.longitude });
-        });
-        view.when(() => setMapReady(true)).catch((err) => console.error('Map view error:', err));
-      } catch (err) { console.error('Error creating map:', err); }
-    };
-
-    const tryInitialize = () => {
-      retries++;
-      if (!mapRef.current || !window.require) {
-        if (retries < 30) setTimeout(tryInitialize, 100);
-        return;
-      }
-      window.require(['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'], initializeMap);
-    };
-    tryInitialize();
-
-    return () => {
-      if (viewInstance) {
-        try { viewInstance.destroy(); viewInstance = null; mapViewRef.current = null; } catch (e) {}
-      }
-    };
-  }, []);
+  
+  // Shapefile upload state
+  const [shapefile, setShapefile] = useState(null);
+  const [linkedSitesCount, setLinkedSitesCount] = useState(null);
+  const fileInputRef = useRef(null);
 
   // Fetch column metadata for hub_projects (authoritative). Fallback to sampling a row or defaults.
   useEffect(() => {
@@ -137,29 +98,6 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
       }
       
       setForm(newForm);
-      
-      // Display marker on map if coordinates exist
-      if (newForm.latitude && newForm.longitude && mapViewRef.current && window.require) {
-        window.require(['esri/Graphic'], (Graphic) => {
-          const point = {
-            type: 'point',
-            longitude: newForm.longitude,
-            latitude: newForm.latitude
-          };
-          
-          mapViewRef.current.graphics.removeAll();
-          const marker = new Graphic({
-            geometry: point,
-            symbol: {
-              type: 'simple-marker',
-              color: [226, 119, 40],
-              size: 12
-            }
-          });
-          mapViewRef.current.graphics.add(marker);
-          mapViewRef.current.center = point;
-        });
-      }
     }
   }, [project, schemaFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -191,127 +129,9 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     })();
   }, [project?.id]);
 
-  // Load and display site geometries on map when selected sites change or map becomes ready
-  useEffect(() => {
-    if (!selectedSites.length || !mapReady || !mapViewRef.current || !window.require) return;
-
-    (async () => {
-      try {
-        const response = await axios.post('/api/sites/geometries', { siteIds: selectedSites });
-        const siteGeoms = response.data?.data || [];
-
-        window.require(['esri/Graphic', 'esri/geometry/Polygon', 'esri/geometry/Polyline', 'esri/geometry/Point'], 
-          (Graphic, Polygon, Polyline, Point) => {
-            if (!mapViewRef.current) return;
-            mapViewRef.current.graphics.removeAll();
-            let bounds = null;
-
-            const getCentroid = (geomData) => {
-              try {
-                if (geomData.type === 'Point') {
-                  return { x: geomData.coordinates[0], y: geomData.coordinates[1] };
-                } else if (geomData.type === 'LineString') {
-                  const mid = Math.floor(geomData.coordinates.length / 2);
-                  return { x: geomData.coordinates[mid][0], y: geomData.coordinates[mid][1] };
-                } else if (geomData.type === 'Polygon') {
-                  const ring = geomData.coordinates[0] || [];
-                  let x = 0, y = 0;
-                  ring.forEach(coord => { x += coord[0]; y += coord[1]; });
-                  return { x: x / ring.length, y: y / ring.length };
-                } else if (geomData.type === 'MultiPolygon') {
-                  let x = 0, y = 0, count = 0;
-                  geomData.coordinates.forEach(poly => {
-                    const ring = poly[0] || [];
-                    ring.forEach(coord => { x += coord[0]; y += coord[1]; count++; });
-                  });
-                  return count > 0 ? { x: x / count, y: y / count } : null;
-                }
-                return null;
-              } catch (e) { return null; }
-            };
-
-            siteGeoms.forEach((geom) => {
-              try {
-                let geomData = geom.geometry ?? geom.shape ?? geom.geom ?? geom.the_geom;
-                if (typeof geomData === 'string') geomData = JSON.parse(geomData);
-                if (!geomData || !geomData.type) return;
-
-                let geometry = null, symbol = null;
-                const spatialRef = geomData.crs?.properties?.name === 'EPSG:2263' ? { wkid: 2263 } : { wkid: 4326 };
-                
-                if (geomData.type === 'MultiPolygon') {
-                  const rings = geomData.coordinates.map(poly => poly[0]);
-                  geometry = new Polygon({ rings, spatialReference: spatialRef });
-                  symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
-                } else if (geomData.type === 'Polygon') {
-                  geometry = new Polygon({ rings: geomData.coordinates, spatialReference: spatialRef });
-                  symbol = { type: 'simple-fill', color: [226, 119, 40, 0.6], outline: { color: [226, 119, 40], width: 3 } };
-                } else if (geomData.type === 'LineString') {
-                  geometry = new Polyline({ paths: [geomData.coordinates], spatialReference: spatialRef });
-                  symbol = { type: 'simple-line', color: [226, 119, 40], width: 4 };
-                } else if (geomData.type === 'Point') {
-                  geometry = new Point({ x: geomData.coordinates[0], y: geomData.coordinates[1], spatialReference: spatialRef });
-                  symbol = { type: 'simple-marker', color: [226, 119, 40], size: 16, outline: { color: [255, 255, 255], width: 3 } };
-                }
-
-                if (geometry && symbol) {
-                  mapViewRef.current.graphics.add(new Graphic({ geometry, symbol }));
-                  if (geometry.extent) bounds = bounds ? bounds.union(geometry.extent) : geometry.extent;
-                }
-
-                // Add pin at centroid
-                const centroid = getCentroid(geomData);
-                if (centroid) {
-                  const pinGeometry = new Point({ x: centroid.x, y: centroid.y, spatialReference: spatialRef });
-                  const pinSymbol = { type: 'simple-marker', style: 'circle', color: [0, 113, 188], size: 18, outline: { color: [255, 255, 255], width: 3 } };
-                  mapViewRef.current.graphics.add(new Graphic({ geometry: pinGeometry, symbol: pinSymbol }));
-                }
-              } catch (e) { console.warn('Geometry error:', e); }
-            });
-
-            if (bounds && siteGeoms.length > 0) {
-              mapViewRef.current.goTo({ target: bounds, padding: { top: 50, left: 50, right: 50, bottom: 50 } });
-            }
-          }
-        );
-      } catch (err) {
-        console.error('Failed to load site geometries:', err);
-      }
-    })();
-  }, [selectedSites, mapReady]);
-
   const setPosition = ({ lat, lng }) => {
     setForm(prev => ({ ...prev, latitude: lat, longitude: lng }));
-    // clear any previous lat/lng errors
     setErrors(prev => ({ ...prev, latitude: undefined, longitude: undefined }));
-    
-    // Update marker on map
-    if (mapViewRef.current && window.require) {
-      window.require(['esri/Graphic'], (Graphic) => {
-        const point = {
-          type: 'point',
-          longitude: lng,
-          latitude: lat
-        };
-        
-        // Remove previous marker if it exists
-        mapViewRef.current.graphics.removeAll();
-        
-        // Add new marker
-        const marker = new Graphic({
-          geometry: point,
-          symbol: {
-            type: 'simple-marker',
-            color: [226, 119, 40],
-            size: 12
-          }
-        });
-        mapViewRef.current.graphics.add(marker);
-        
-        // Center map on marker
-        mapViewRef.current.center = point;
-      });
-    }
   };
 
   const handleChange = (e, { name, value }) => {
@@ -344,6 +164,28 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     return err;
   };
 
+  const handleShapefileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.name.toLowerCase().endsWith('.zip')) {
+        setError('Please upload a .zip file containing shapefile components (.shp, .shx, .dbf)');
+        setShapefile(null);
+        return;
+      }
+      setShapefile(file);
+      setError(null);
+    } else {
+      setShapefile(null);
+    }
+  };
+
+  const clearShapefile = () => {
+    setShapefile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
     const validation = validate();
     if (Object.keys(validation).length > 0) {
@@ -355,6 +197,8 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setLinkedSitesCount(null);
+    
     try {
       const payload = {};
       // Only send fields that appear in schemaFields (or defaults)
@@ -364,17 +208,48 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
       }
 
       if (project && project.id) {
+        // Editing existing project - no shapefile support
         await axios.put(`/api/projects/${project.id}`, payload);
         setSuccess('Project updated successfully');
       } else {
-        await axios.post('/api/projects', payload);
-        setSuccess('Project created successfully');
+        // Creating new project
+        if (shapefile) {
+          // Use FormData for multipart upload with shapefile
+          const formData = new FormData();
+          formData.append('shapefile', shapefile);
+          formData.append('projectData', JSON.stringify(payload));
+          
+          const response = await axios.post('/api/projects/with-shapefile', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
+          
+          const linkedCount = response.data?.linkedSitesCount || 0;
+          const shapefileError = response.data?.shapefileError;
+          
+          setLinkedSitesCount(linkedCount);
+          
+          if (shapefileError) {
+            setSuccess(`Project created, but shapefile processing failed: ${shapefileError}`);
+          } else if (linkedCount > 0) {
+            setSuccess(`Project created successfully! ${linkedCount} site${linkedCount !== 1 ? 's' : ''} linked from shapefile.`);
+          } else {
+            setSuccess('Project created successfully. No sites found within the shapefile boundary.');
+          }
+        } else {
+          // Regular create without shapefile
+          await axios.post('/api/projects', payload);
+          setSuccess('Project created successfully');
+        }
       }
 
       if (onCreated) onCreated();
 
       // Reset fields only after create (if editing, keep values)
-      if (!project) setForm({ name: '', description: '', address: '', borough: '', latitude: null, longitude: null });
+      if (!project) {
+        setForm({ name: '', description: '', address: '', borough: '', latitude: null, longitude: null });
+        setShapefile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
       setErrors({});
     } catch (err) {
       console.error('CreateProject submit error', err);
@@ -442,6 +317,41 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
                 <p style={{ color: 'var(--text-dim)' }}>Loading form fields...</p>
               )}
 
+              {/* Shapefile upload - only shown when creating new project */}
+              {!project && (
+                <Form.Field style={{ marginTop: 16 }}>
+                  <label>Import Sites from Shapefile (optional)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".zip"
+                      onChange={handleShapefileChange}
+                      style={{ flex: 1 }}
+                    />
+                    {shapefile && (
+                      <Button
+                        icon
+                        size="small"
+                        type="button"
+                        onClick={clearShapefile}
+                        title="Clear selected file"
+                      >
+                        <Icon name="close" />
+                      </Button>
+                    )}
+                  </div>
+                  {shapefile && (
+                    <p style={{ color: 'var(--brand-primary)', marginTop: 4, fontSize: '0.9em' }}>
+                      <Icon name="file archive" /> {shapefile.name} ({(shapefile.size / 1024).toFixed(1)} KB)
+                    </p>
+                  )}
+                  <p style={{ color: 'var(--text-dim)', marginTop: 4, fontSize: '0.85em' }}>
+                    Upload a .zip file containing .shp, .shx, and .dbf files. Sites that intersect the shapefile boundary will be automatically linked to this project.
+                  </p>
+                </Form.Field>
+              )}
+
               <div style={{ marginTop: 12 }}>
                 <Button primary onClick={handleSubmit} loading={loading} disabled={loading}>{project ? 'Save Changes' : 'Create Project'}</Button>
                 <Button onClick={() => { if (onCancel) onCancel(); }} disabled={loading} style={{ marginLeft: 8 }}>Cancel</Button>
@@ -491,7 +401,13 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
           </Grid.Column>
 
           <Grid.Column width={8}>
-            <div ref={mapRef} style={{ height: 360, width: '100%', borderRadius: '4px', minHeight: '360px', background: 'var(--bg-secondary)' }} />
+            <CreateProjectMap
+              siteIds={selectedSites}
+              latitude={form.latitude}
+              longitude={form.longitude}
+              onPositionChange={setPosition}
+              height={360}
+            />
             <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
               Click on the map to set the project's location. You can also enter latitude/longitude manually.
             </div>

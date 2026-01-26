@@ -4,8 +4,11 @@
 .empty, .loading { padding:12px; color:#666; }
 /* Most visual styling handled by Semantic UI; keep only small layout overrides here. */
 
-/* Site ID link styling */
+/* Site ID link styling (works as button or anchor) */
 .site-id-link {
+  background: none;
+  border: none;
+  padding: 0;
   color: #00ccff !important;
   text-decoration: underline !important;
   font-weight: 500 !important;
@@ -13,6 +16,8 @@
   display: inline-block !important;
   position: relative !important;
   z-index: 10 !important;
+  font-size: inherit;
+  font-family: inherit;
 }
 
 .site-id-link:hover {
@@ -20,8 +25,53 @@
   text-decoration: underline !important;
 }
 
-/* Ensure link is visible in Card.Meta */
-.project-detail .ui.card .meta .site-id-link {
-  color: #00ccff !important;
-  text-decoration: underline !important;
+/* Project sites table */
+.project-sites-table-wrap {
+  margin-top: 1rem;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #333);
+}
+
+.project-sites-table-wrap .ui.table {
+  background: var(--bg-primary, #1a1a2e) !important;
+  color: var(--text-primary, #fff) !important;
+  border: none !important;
+  margin: 0;
+}
+
+.project-sites-table-wrap .ui.table thead th {
+  background: var(--bg-tertiary, #2a2a40) !important;
+  color: var(--text-secondary, #aaa) !important;
+  border-bottom: 1px solid var(--border-color, #333) !important;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.project-sites-table-wrap .ui.table td {
+  border-bottom: 1px solid var(--border-color, #333) !important;
+  color: var(--text-primary, #fff) !important;
+  background: transparent !important;
+}
+
+.project-sites-table-wrap .ui.table tr:last-child td {
+  border-bottom: none !important;
+}
+
+.project-sites-table-wrap .ui.table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.project-sites-table-wrap .ui.table tbody tr:hover {
+  background: var(--bg-hover, rgba(0, 255, 136, 0.08)) !important;
+}
+
+.project-sites-table-wrap .ui.table tbody tr.active {
+  background: rgba(0, 255, 136, 0.15) !important;
+}
+
+.project-sites-table-wrap .ui.table tbody tr.active td {
+  color: var(--accent-primary, #00ff88) !important;
 }

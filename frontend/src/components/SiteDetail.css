@@ -119,6 +119,25 @@
   word-break: break-word;
 }
 
+/* Highlighted attribute (e.g., BBL) */
+.site-detail-attr-highlight {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.08) 0%, rgba(0, 204, 255, 0.08) 100%);
+  margin: -0.6rem -1.25rem 0.6rem -1.25rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.site-detail-attr-highlight .site-detail-attr-key {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.site-detail-attr-highlight .site-detail-attr-val {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
 /* Map block – first in layout so it’s in viewport when MapView inits; must not shrink */
 .site-detail-map-wrap {
   display: flex;

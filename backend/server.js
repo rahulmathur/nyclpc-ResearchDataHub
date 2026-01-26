@@ -5,8 +5,27 @@ if (process.env.NODE_ENV !== 'production') {
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 
 const app = express();
+
+// Configure multer for file uploads (memory storage for processing)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only .zip files
+    if (file.mimetype === 'application/zip' || 
+        file.mimetype === 'application/x-zip-compressed' ||
+        file.originalname.toLowerCase().endsWith('.zip')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .zip files containing shapefiles are allowed'), false);
+    }
+  }
+});
 const PORT = process.env.PORT || 5001;
 
 // Middleware
@@ -159,6 +178,10 @@ app.get('/api/columns/:tableName', columnsController.getColumns);
 const projectsController = require('./controllers/projectsController');
 app.get('/api/projects', projectsController.listProjects);
 app.post('/api/projects', projectsController.createProject);
+// Create project with shapefile upload (multipart form) - links existing sites
+app.post('/api/projects/with-shapefile', upload.single('shapefile'), projectsController.createProjectWithShapefile);
+// Import project from shapefile - creates new sites from shapefile features
+app.post('/api/projects/import-shapefile', upload.single('shapefile'), projectsController.importProjectFromShapefile);
 app.put('/api/projects/:projectId', projectsController.updateProject);
 app.delete('/api/projects/:projectId', projectsController.deleteProject);
 app.get('/api/projects/:projectId/sites', projectsController.getProjectSites);
@@ -169,6 +192,8 @@ app.get('/api/projects/:projectId/sites-with-attributes', projectsController.get
 app.get('/api/site-attributes', projectsController.getSiteAttributes);
 app.get('/api/sites/list', projectsController.getSitesList);
 app.get('/api/sites', projectsController.getAllSites);
+// Find sites from shapefile (standalone endpoint)
+app.post('/api/sites/from-shapefile', upload.single('shapefile'), projectsController.findSitesFromShapefile);
 
 // Health check
 app.get('/api/health', async (req, res) => {

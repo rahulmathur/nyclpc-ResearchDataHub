@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-import { Segment, Header, List, Loader, Message, Button, Grid, Card, Modal } from 'semantic-ui-react';
+import { Segment, Header, List, Loader, Message, Button, Grid, Table, Modal } from 'semantic-ui-react';
 import SiteDetail from './SiteDetail';
 import './ProjectDetail.css';
 
@@ -170,52 +170,57 @@ function ProjectDetail({ onViewSiteDetail }) {
             ) : sites.length === 0 ? (
               <Message info content="No sites found for this project" />
             ) : (
-              <Card.Group itemsPerRow={3}>
-                {sites.map((s, idx) => (
-                  <Card
-                    key={getId(s) || `s-${idx}`}
-                    onClick={() => setSelectedSite(s)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedSite(s); }}
-                    aria-label={`Select site ${getName(s)}`}
-                    color={getId(selectedSite) === getId(s) ? 'green' : undefined}
-                  >
-                    <Card.Content>
-                      <Card.Header>{getName(s)}</Card.Header>
-                      <Card.Meta>
-                        ID:{' '}
-                        <a
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openSiteDetails(s, e);
-                          }}
-                          className="site-id-link"
-                          style={{ 
-                            textDecoration: 'underline', 
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            color: onViewSiteDetail ? '#00ff88' : '#00ccff',
-                            transition: 'color 0.2s ease'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = '#00ff88';
-                            e.currentTarget.style.textDecoration = 'underline';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = onViewSiteDetail ? '#00ff88' : '#00ccff';
-                          }}
-                          aria-label={`View details for site ${getId(s)}`}
-                        >
-                          {getId(s)}
-                        </a>
-                      </Card.Meta>
-                    </Card.Content>
-                  </Card>
-                ))}
-              </Card.Group>
+              <div className="project-sites-table-wrap">
+                <Table celled selectable compact>
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.HeaderCell>Site ID</Table.HeaderCell>
+                      <Table.HeaderCell>BIN</Table.HeaderCell>
+                      <Table.HeaderCell>BBL</Table.HeaderCell>
+                      <Table.HeaderCell>Actions</Table.HeaderCell>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {sites.map((s, idx) => (
+                      <Table.Row 
+                        key={getId(s) || `s-${idx}`}
+                        onClick={() => setSelectedSite(s)}
+                        active={getId(selectedSite) === getId(s)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <Table.Cell>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openSiteDetails(s, e);
+                            }}
+                            className="site-id-link"
+                            aria-label={`View details for site ${getId(s)}`}
+                          >
+                            {getId(s)}
+                          </button>
+                        </Table.Cell>
+                        <Table.Cell>{s.bin || '—'}</Table.Cell>
+                        <Table.Cell>{s.bbl || '—'}</Table.Cell>
+                        <Table.Cell>
+                          <Button 
+                            size="mini" 
+                            primary 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSiteDetails(s, e);
+                            }}
+                          >
+                            View
+                          </Button>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
             )}
 
             <div className="project-detail-actions" style={{ marginTop: 12 }}>
@@ -233,7 +238,7 @@ function ProjectDetail({ onViewSiteDetail }) {
         closeIcon
       >
         <Modal.Content scrolling>
-          {siteToView && <SiteDetail site={siteToView} onBack={closeSiteDetails} />}
+          {siteToView && <SiteDetail site={siteToView} onBack={closeSiteDetails} hideSatelliteData />}
         </Modal.Content>
       </Modal>
     </div>

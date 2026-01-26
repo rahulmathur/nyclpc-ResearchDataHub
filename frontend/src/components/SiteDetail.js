@@ -13,6 +13,7 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedTables, setExpandedTables] = useState([]);
+  const [bblData, setBblData] = useState(null); // BBL values for this site
 
   // Load all tables and filter for satellite tables (skip when hideSatelliteData – e.g. from project's selected sites)
   useEffect(() => {
@@ -61,6 +62,31 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
         if (mounted) setRefAttributesLookup(lookup);
       } catch (e) {
         if (mounted) setRefAttributesLookup({});
+      }
+    })();
+    return () => { mounted = false; };
+  }, [site]);
+
+  // Load BBL data from sat_site_bbl for this site
+  useEffect(() => {
+    if (!site) return;
+    const siteId = site.hub_site_id || site.id;
+    if (!siteId) return;
+    
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await axios.get('/api/table/sat_site_bbl', { params: { limit: 100, hub_site_id: siteId } });
+        const rows = res.data?.data || [];
+        // Filter for this specific site and extract unique BBL values
+        const siteBbls = rows
+          .filter(r => String(r.hub_site_id) === String(siteId))
+          .map(r => r.bbl)
+          .filter(Boolean);
+        const uniqueBbls = [...new Set(siteBbls)];
+        if (mounted) setBblData(uniqueBbls.length > 0 ? uniqueBbls.join(' | ') : null);
+      } catch (e) {
+        if (mounted) setBblData(null);
       }
     })();
     return () => { mounted = false; };
@@ -202,6 +228,12 @@ export default function SiteDetail({ site, onBack, backLabel = '← Back to Site
         <div className="site-detail-card">
           <div className="site-detail-card-header">Details</div>
           <div className="site-detail-attrs">
+            {bblData && (
+              <div className="site-detail-attr site-detail-attr-highlight">
+                <span className="site-detail-attr-key">BBL</span>
+                <span className="site-detail-attr-val">{bblData}</span>
+              </div>
+            )}
             {attrs.map(([key, value]) => (
               <div key={key} className="site-detail-attr">
                 <span className="site-detail-attr-key">{attrDisplayName(key)}</span>

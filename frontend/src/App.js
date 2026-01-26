@@ -12,6 +12,7 @@ import CreateProject from './components/CreateProject';
 import ProjectsList from './components/ProjectsList';
 import SitesList from './components/SitesList';
 import SiteDetail from './components/SiteDetail';
+import ImportProjectFromShapefile from './components/ImportProjectFromShapefile';
 
 const AUTH_STORAGE_KEY = 'lpc_rdh_authenticated';
 
@@ -73,6 +74,7 @@ function App() {
   // Navigation helpers for Splash actions
 
   const createProject = () => { setEditingProject(null); setActiveView('create-project'); };
+  const importProjectFromShapefile = () => setActiveView('import-shapefile');
   const viewProjects = () => setActiveView('projects');
   const viewSites = () => { setSelectedSite(null); setActiveView('sites'); };
   const viewSiteDetail = (site, fromView = null) => { 
@@ -157,6 +159,14 @@ function App() {
             >
               <Dropdown.Menu>
                 <Dropdown.Item 
+                  active={activeView === 'import-shapefile'} 
+                  onClick={() => { handleNavClick('import-shapefile'); importProjectFromShapefile(); }}
+                >
+                  <Icon name="upload" />
+                  <span>Import from Shapefile</span>
+                </Dropdown.Item>
+                <Dropdown.Divider />
+                <Dropdown.Item 
                   active={activeView === 'tables'} 
                   onClick={() => handleNavClick('tables')}
                 >
@@ -232,6 +242,14 @@ function App() {
           >
             <Icon name="map marker alternate" />
             Sites
+          </Menu.Item>
+          <Menu.Item 
+            name="import-shapefile" 
+            active={activeView === 'import-shapefile'} 
+            onClick={() => { handleNavClick('import-shapefile'); importProjectFromShapefile(); }}
+          >
+            <Icon name="upload" />
+            Import Shapefile
           </Menu.Item>
           <Menu.Item 
             name="tables" 
@@ -316,6 +334,7 @@ function App() {
             site={selectedSite} 
             onBack={backFromSiteDetail}
             backLabel={previousView === 'create-project' ? '← Back to Project' : previousView === 'projects' ? '← Back to Projects' : '← Back to Sites'}
+            hideSatelliteData={previousView === 'create-project'}
           />
         ) : activeView === 'create-project' ? (
           <CreateProject 
@@ -323,6 +342,20 @@ function App() {
             onCreated={() => { setActiveView('projects'); setEditingProject(null); loadTables(); }} 
             onCancel={() => { setActiveView('projects'); setEditingProject(null); }}
             onViewSiteDetail={viewSiteDetail}
+          />
+        ) : activeView === 'import-shapefile' ? (
+          <ImportProjectFromShapefile
+            onImported={(result) => { 
+              if (result?.projectId) {
+                // Navigate to the new project
+                setEditingProject({ id: result.projectId, name: result.projectName });
+                setActiveView('create-project');
+              } else {
+                setActiveView('projects');
+              }
+              loadTables();
+            }}
+            onCancel={() => setActiveView('projects')}
           />
         ) : null}
           </div>

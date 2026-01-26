@@ -1,0 +1,156 @@
+.import-project-shapefile {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.import-project-shapefile .description {
+  color: var(--text-dim, #888);
+  margin-bottom: 24px;
+  font-size: 1.05em;
+}
+
+/* Dropzone Styles */
+.import-project-shapefile .dropzone {
+  border: 2px dashed var(--brand-primary, #0071bc);
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(0, 113, 188, 0.03);
+  margin-bottom: 16px;
+}
+
+.import-project-shapefile .dropzone:hover {
+  border-color: var(--brand-secondary, #e27728);
+  background: rgba(226, 119, 40, 0.05);
+}
+
+.import-project-shapefile .dropzone.active {
+  border-color: var(--brand-secondary, #e27728);
+  background: rgba(226, 119, 40, 0.1);
+  transform: scale(1.01);
+}
+
+.import-project-shapefile .dropzone.has-file {
+  border-style: solid;
+  background: rgba(0, 113, 188, 0.05);
+  padding: 20px;
+}
+
+.import-project-shapefile .dropzone-content {
+  color: var(--text-dim, #888);
+}
+
+.import-project-shapefile .dropzone-content .icon {
+  color: var(--brand-primary, #0071bc);
+  opacity: 0.7;
+  margin-bottom: 16px;
+}
+
+.import-project-shapefile .dropzone-content p {
+  margin: 8px 0;
+}
+
+.import-project-shapefile .dropzone-content .hint {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+/* File Info Display */
+.import-project-shapefile .file-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+}
+
+.import-project-shapefile .file-info .icon {
+  color: var(--brand-primary, #0071bc);
+}
+
+.import-project-shapefile .file-details {
+  flex: 1;
+}
+
+.import-project-shapefile .file-name {
+  font-weight: 600;
+  font-size: 1.1em;
+  color: var(--text-primary, #333);
+}
+
+.import-project-shapefile .file-size {
+  color: var(--text-dim, #888);
+  font-size: 0.9em;
+}
+
+/* Progress */
+.import-project-shapefile .import-progress {
+  margin: 20px 0;
+}
+
+/* Import Result */
+.import-project-shapefile .import-result {
+  margin-top: 20px;
+  background: rgba(33, 186, 69, 0.05) !important;
+  border-left: 4px solid #21ba45 !important;
+}
+
+.import-project-shapefile .import-result h4 {
+  color: #21ba45;
+  margin-bottom: 12px;
+}
+
+/* Attribute Tags */
+.import-project-shapefile .attribute-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.import-project-shapefile .attribute-tag {
+  display: inline-block;
+  background: rgba(0, 113, 188, 0.1);
+  color: var(--brand-primary, #0071bc);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: monospace;
+}
+
+/* Actions */
+.import-project-shapefile .actions {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .import-project-shapefile {
+    padding: 12px;
+  }
+  
+  .import-project-shapefile .dropzone {
+    padding: 24px 16px;
+  }
+  
+  .import-project-shapefile .file-info {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .import-project-shapefile .file-details {
+    text-align: center;
+  }
+  
+  .import-project-shapefile .actions {
+    flex-direction: column;
+  }
+  
+  .import-project-shapefile .actions button {
+    width: 100%;
+  }
+}

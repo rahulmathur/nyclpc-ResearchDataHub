@@ -1,5 +1,9 @@
 const { getPool } = require('../db');
 const { getEnumMap, getPrimaryKey } = require('../db/utils');
+const shapefile = require('shapefile');
+const AdmZip = require('adm-zip');
+const { from: copyFrom } = require('pg-copy-streams');
+const { Readable } = require('stream');
 
 async function listProjects(req, res) {
   try {
@@ -16,13 +20,40 @@ async function getProjectSites(req, res) {
   const { projectId } = req.params;
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-    const result = await getPool().query(`
-      SELECT s.*
+    const pool = getPool();
+    
+    // Find the BIN attribute_id from ref_attributes
+    let binAttrId = null;
+    try {
+      const binAttrRes = await pool.query(
+        `SELECT attribute_id, attribute_type FROM ref_attributes 
+         WHERE attribute_p_or_s = 'S' AND (LOWER(attribute_nm) = 'bin' OR LOWER(attribute_text) = 'bin') 
+         LIMIT 1`
+      );
+      if (binAttrRes.rows.length > 0) {
+        binAttrId = binAttrRes.rows[0].attribute_id;
+      }
+    } catch (e) {
+      // ref_attributes may not exist; skip BIN lookup
+    }
+    
+    // Build the query with LEFT JOINs for BBL and BIN
+    // BBL comes from sat_site_bbl, BIN comes from sat_site_attributes
+    const result = await pool.query(`
+      SELECT 
+        s.*,
+        (SELECT string_agg(DISTINCT bbl::text, ' | ' ORDER BY bbl::text) 
+         FROM sat_site_bbl 
+         WHERE hub_site_id = s.hub_site_id) AS bbl,
+        ${binAttrId ? `(SELECT string_agg(DISTINCT COALESCE(attribute_value_text, attribute_value_int::text), ' | ')
+         FROM sat_site_attributes 
+         WHERE hub_site_id = s.hub_site_id AND attribute_id = ${binAttrId}) AS bin` : 'NULL AS bin'}
       FROM hub_sites s
       JOIN lnk_project_site l ON s.hub_site_id = l.hub_site_id
       WHERE l.hub_project_id = $1
       ORDER BY s.hub_site_id
     `, [projectId]);
+    
     const sites = result.rows.map(r => ({ ...r, id: r.hub_site_id }));
     res.json({ success: true, data: sites });
   } catch (error) {
@@ -549,6 +580,647 @@ async function updateProjectSites(req, res) {
   }
 }
 
+// Parse shapefile buffer and return GeoJSON
+async function parseShapefile(buffer) {
+  try {
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries();
+    
+    // Find .shp and .dbf files (case-insensitive)
+    const shpEntry = entries.find(e => e.entryName.toLowerCase().endsWith('.shp'));
+    const dbfEntry = entries.find(e => e.entryName.toLowerCase().endsWith('.dbf'));
+    
+    if (!shpEntry) {
+      throw new Error('No .shp file found in the uploaded zip');
+    }
+    
+    // Get the buffers
+    const shpBuffer = shpEntry.getData();
+    const dbfBuffer = dbfEntry ? dbfEntry.getData() : null;
+    
+    // shapefile.read() accepts ArrayBuffers or Node Buffers
+    const geojson = await shapefile.read(shpBuffer, dbfBuffer);
+    
+    return geojson;
+  } catch (err) {
+    throw new Error(`Failed to parse shapefile: ${err.message}`);
+  }
+}
+
+// Combine all features into a single geometry (union/collect)
+function combineGeometries(geojson) {
+  // Handle FeatureCollection
+  if (geojson.type === 'FeatureCollection' && geojson.features) {
+    if (geojson.features.length === 0) {
+      throw new Error('Shapefile contains no features');
+    }
+    // If single feature, return its geometry
+    if (geojson.features.length === 1) {
+      return geojson.features[0].geometry;
+    }
+    // Multiple features - create a GeometryCollection
+    return {
+      type: 'GeometryCollection',
+      geometries: geojson.features.map(f => f.geometry).filter(g => g)
+    };
+  }
+  
+  // Handle array of FeatureCollections (multiple layers)
+  if (Array.isArray(geojson)) {
+    const allFeatures = geojson.flatMap(fc => fc.features || []);
+    if (allFeatures.length === 0) {
+      throw new Error('Shapefile contains no features');
+    }
+    if (allFeatures.length === 1) {
+      return allFeatures[0].geometry;
+    }
+    return {
+      type: 'GeometryCollection',
+      geometries: allFeatures.map(f => f.geometry).filter(g => g)
+    };
+  }
+  
+  // Single Feature
+  if (geojson.type === 'Feature' && geojson.geometry) {
+    return geojson.geometry;
+  }
+  
+  // Direct geometry
+  if (geojson.type && ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon', 'GeometryCollection'].includes(geojson.type)) {
+    return geojson;
+  }
+  
+  throw new Error('Could not extract geometry from shapefile');
+}
+
+// Find sites that intersect with the given GeoJSON geometry
+async function findSitesFromShapefile(req, res) {
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No shapefile uploaded. Please upload a .zip file containing .shp, .shx, and .dbf files.' });
+    }
+    
+    const pool = getPool();
+    
+    // Parse the shapefile
+    let geojson;
+    try {
+      geojson = await parseShapefile(req.file.buffer);
+    } catch (parseErr) {
+      return res.status(400).json({ error: parseErr.message });
+    }
+    
+    // Combine all geometries into one
+    let geometry;
+    try {
+      geometry = combineGeometries(geojson);
+    } catch (combineErr) {
+      return res.status(400).json({ error: combineErr.message });
+    }
+    
+    const geometryJson = JSON.stringify(geometry);
+    
+    // Get the geometry column name from sat_site_geometry
+    const geomColRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+    );
+    const geomCol = geomColRes.rows[0]?.column_name;
+    
+    if (!geomCol || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(geomCol)) {
+      return res.status(500).json({ error: 'Could not find geometry column in sat_site_geometry table' });
+    }
+    
+    // Query for intersecting sites
+    // We need to handle different SRIDs - transform site geometries to 4326 for comparison
+    const result = await pool.query(`
+      SELECT DISTINCT sg.hub_site_id
+      FROM sat_site_geometry sg
+      WHERE ST_Intersects(
+        CASE 
+          WHEN ST_SRID(sg."${geomCol}") IS NOT NULL AND ST_SRID(sg."${geomCol}") > 0
+          THEN ST_Transform(sg."${geomCol}", 4326)
+          ELSE sg."${geomCol}"
+        END,
+        ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)
+      )
+      ORDER BY sg.hub_site_id
+    `, [geometryJson]);
+    
+    const siteIds = result.rows.map(r => r.hub_site_id);
+    
+    res.json({ 
+      success: true, 
+      data: siteIds,
+      count: siteIds.length
+    });
+  } catch (error) {
+    console.error('findSitesFromShapefile error:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// Create project with optional shapefile to auto-link sites
+async function createProjectWithShapefile(req, res) {
+  const tableName = 'hub_projects';
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
+    
+    // Parse form data - fields come as strings in multipart
+    let data = {};
+    if (req.body) {
+      // If projectData is sent as JSON string (from FormData)
+      if (req.body.projectData) {
+        try {
+          data = JSON.parse(req.body.projectData);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid projectData JSON' });
+        }
+      } else {
+        // Regular fields
+        data = { ...req.body };
+        // Convert numeric strings back to numbers for lat/lng
+        if (data.latitude) data.latitude = parseFloat(data.latitude);
+        if (data.longitude) data.longitude = parseFloat(data.longitude);
+      }
+    }
+
+    // Validate enum fields if present
+    const enumMap = await getEnumMap(tableName);
+    for (const [k, v] of Object.entries(data)) {
+      if (v == null) continue;
+      const allowed = enumMap[k];
+      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
+        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
+      }
+    }
+
+    const columns = Object.keys(data).join(', ');
+    if (!columns) return res.status(400).json({ error: 'No data provided' });
+    const values = Object.values(data);
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+    
+    // Create the project
+    const result = await pool.query(
+      `INSERT INTO ${tableName} (${columns}) VALUES (${placeholders}) RETURNING *`,
+      values
+    );
+    const row = result.rows[0];
+    row.id = row.hub_project_id;
+    const projectId = row.hub_project_id;
+    
+    let linkedSitesCount = 0;
+    
+    // If shapefile was uploaded, find and link intersecting sites
+    if (req.file) {
+      try {
+        // Parse the shapefile
+        const geojson = await parseShapefile(req.file.buffer);
+        const geometry = combineGeometries(geojson);
+        const geometryJson = JSON.stringify(geometry);
+        
+        // Get the geometry column name
+        const geomColRes = await pool.query(
+          `SELECT column_name FROM information_schema.columns 
+           WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+        );
+        const geomCol = geomColRes.rows[0]?.column_name;
+        
+        if (geomCol && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(geomCol)) {
+          // Find intersecting sites
+          const sitesResult = await pool.query(`
+            SELECT DISTINCT sg.hub_site_id
+            FROM sat_site_geometry sg
+            WHERE ST_Intersects(
+              CASE 
+                WHEN ST_SRID(sg."${geomCol}") IS NOT NULL AND ST_SRID(sg."${geomCol}") > 0
+                THEN ST_Transform(sg."${geomCol}", 4326)
+                ELSE sg."${geomCol}"
+              END,
+              ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)
+            )
+          `, [geometryJson]);
+          
+          const siteIds = sitesResult.rows.map(r => r.hub_site_id);
+          
+          // Link sites to project
+          for (const siteId of siteIds) {
+            await pool.query(
+              'INSERT INTO lnk_project_site (hub_project_id, hub_site_id) VALUES ($1, $2)',
+              [projectId, siteId]
+            );
+          }
+          
+          linkedSitesCount = siteIds.length;
+        }
+      } catch (shapeErr) {
+        // Project was created but shapefile processing failed
+        console.error('Shapefile processing error:', shapeErr);
+        return res.json({ 
+          success: true, 
+          data: row,
+          linkedSitesCount: 0,
+          shapefileError: shapeErr.message
+        });
+      }
+    }
+    
+    res.json({ success: true, data: row, linkedSitesCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+// Detect attribute type from JavaScript value
+function detectAttributeType(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? 'int' : 'num';
+  }
+  if (typeof value === 'boolean') return 'int'; // Store as 0/1
+  if (value instanceof Date) return 'ts';
+  if (typeof value === 'string') {
+    // Try to detect date strings
+    const dateMatch = value.match(/^\d{4}-\d{2}-\d{2}/);
+    if (dateMatch && !isNaN(Date.parse(value))) return 'ts';
+    return 'txt';
+  }
+  return 'txt';
+}
+
+// Get or create an attribute by name
+async function getOrCreateAttribute(pool, fieldName, sampleValue, usedAttributes) {
+  // Check cache first
+  const cacheKey = fieldName.toLowerCase();
+  if (usedAttributes.has(cacheKey)) {
+    return usedAttributes.get(cacheKey);
+  }
+
+  // Look for existing attribute (case-insensitive)
+  const existing = await pool.query(
+    `SELECT attribute_id, attribute_type FROM ref_attributes 
+     WHERE LOWER(attribute_nm) = LOWER($1) AND attribute_p_or_s = 'S'
+     LIMIT 1`,
+    [fieldName]
+  );
+
+  if (existing.rows.length > 0) {
+    const attr = existing.rows[0];
+    usedAttributes.set(cacheKey, attr);
+    return attr;
+  }
+
+  // Create new attribute
+  const attrType = detectAttributeType(sampleValue) || 'txt';
+  try {
+    const insertResult = await pool.query(
+      `INSERT INTO ref_attributes (attribute_nm, attribute_text, attribute_p_or_s, attribute_type, create_dt)
+       VALUES ($1, $1, 'S', $2, NOW())
+       RETURNING attribute_id, attribute_type`,
+      [fieldName, attrType]
+    );
+    const newAttr = insertResult.rows[0];
+    usedAttributes.set(cacheKey, newAttr);
+    return newAttr;
+  } catch (insertErr) {
+    // If insert fails (e.g., duplicate from race condition), try to fetch existing
+    const retry = await pool.query(
+      `SELECT attribute_id, attribute_type FROM ref_attributes 
+       WHERE LOWER(attribute_nm) = LOWER($1) LIMIT 1`,
+      [fieldName]
+    );
+    if (retry.rows.length > 0) {
+      const attr = retry.rows[0];
+      usedAttributes.set(cacheKey, attr);
+      return attr;
+    }
+    throw insertErr;
+  }
+}
+
+// Helper: Stream data to COPY
+function streamToCopy(client, copyQuery, dataGenerator) {
+  return new Promise((resolve, reject) => {
+    const stream = client.query(copyFrom(copyQuery));
+    stream.on('error', reject);
+    stream.on('finish', resolve);
+    
+    for (const line of dataGenerator) {
+      stream.write(line + '\n');
+    }
+    stream.end();
+  });
+}
+
+// Helper: Escape CSV value
+function escapeCsv(val) {
+  if (val === null || val === undefined) return '\\N';
+  const str = String(val);
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\\')) {
+    return '"' + str.replace(/"/g, '""').replace(/\\/g, '\\\\') + '"';
+  }
+  return str;
+}
+
+// Import project from shapefile - OPTIMIZED with COPY for bulk loading
+async function importProjectFromShapefile(req, res) {
+  const pool = getPool();
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No shapefile uploaded. Please upload a .zip file containing .shp, .shx, and .dbf files.' });
+  }
+
+  // Get a dedicated client for transaction
+  const client = await pool.connect();
+  
+  try {
+    // Parse the shapefile
+    let geojson;
+    try {
+      geojson = await parseShapefile(req.file.buffer);
+    } catch (parseErr) {
+      client.release();
+      return res.status(400).json({ error: parseErr.message });
+    }
+
+    if (!geojson.features || geojson.features.length === 0) {
+      client.release();
+      return res.status(400).json({ error: 'Shapefile contains no features' });
+    }
+
+    const features = geojson.features;
+    const filename = req.file.originalname || 'shapefile.zip';
+    const projectName = req.body?.projectName || `Import_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
+    const startTime = Date.now();
+
+    console.log(`[BULK IMPORT] Starting import of ${features.length} features from ${filename}`);
+
+    // Begin transaction
+    await client.query('BEGIN');
+
+    // Get geometry column name
+    const geomColRes = await client.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+    );
+    const geomCol = geomColRes.rows[0]?.column_name || 'shape';
+
+    // Step 1: Create record source
+    const recordSourceResult = await client.query(
+      `INSERT INTO ref_record_source (source_system, source_app, source_process, source_owner, create_dt)
+       VALUES ($1, $2, $3, $4, NOW()) RETURNING record_source_id`,
+      ['shapefile_import', 'ResearchDataHub', 'importProjectFromShapefile', filename]
+    );
+    const recordSourceId = recordSourceResult.rows[0].record_source_id;
+
+    // Step 2: Create project
+    const projectResult = await client.query(
+      `INSERT INTO hub_projects (project_nm, project_desc, record_source_id, create_dt)
+       VALUES ($1, $2, $3, NOW()) RETURNING hub_project_id`,
+      [projectName, `Imported from shapefile: ${filename}`, recordSourceId]
+    );
+    const projectId = projectResult.rows[0].hub_project_id;
+
+    console.log(`[BULK IMPORT] Created project ${projectId}, extracting field names...`);
+
+    // Step 3: Pre-process - extract all unique field names and their types
+    const fieldTypes = new Map(); // fieldName -> detected type
+    const validFeatures = [];
+    
+    for (const feature of features) {
+      if (!feature.geometry) continue;
+      validFeatures.push(feature);
+      
+      const props = feature.properties || {};
+      for (const [key, val] of Object.entries(props)) {
+        if (val === null || val === undefined || val === '') continue;
+        if (!fieldTypes.has(key)) {
+          fieldTypes.set(key, detectAttributeType(val) || 'txt');
+        }
+      }
+    }
+
+    const skippedFeatures = features.length - validFeatures.length;
+    console.log(`[BULK IMPORT] Found ${fieldTypes.size} unique fields, ${validFeatures.length} valid features`);
+
+    // Step 4: Pre-create all attributes
+    const attributeMap = new Map(); // fieldName.toLowerCase() -> { attribute_id, attribute_type }
+    
+    for (const [fieldName, attrType] of fieldTypes) {
+      const cacheKey = fieldName.toLowerCase();
+      
+      // Check if exists
+      const existing = await client.query(
+        `SELECT attribute_id, attribute_type FROM ref_attributes 
+         WHERE LOWER(attribute_nm) = LOWER($1) AND attribute_p_or_s = 'S' LIMIT 1`,
+        [fieldName]
+      );
+      
+      if (existing.rows.length > 0) {
+        attributeMap.set(cacheKey, existing.rows[0]);
+      } else {
+        // Create new
+        try {
+          const insertRes = await client.query(
+            `INSERT INTO ref_attributes (attribute_nm, attribute_text, attribute_p_or_s, attribute_type, create_dt)
+             VALUES ($1, $1, 'S', $2, NOW()) RETURNING attribute_id, attribute_type`,
+            [fieldName, attrType]
+          );
+          attributeMap.set(cacheKey, insertRes.rows[0]);
+        } catch (e) {
+          // May already exist from race condition, fetch it
+          const retry = await client.query(
+            `SELECT attribute_id, attribute_type FROM ref_attributes WHERE LOWER(attribute_nm) = LOWER($1) LIMIT 1`,
+            [fieldName]
+          );
+          if (retry.rows.length > 0) {
+            attributeMap.set(cacheKey, retry.rows[0]);
+          }
+        }
+      }
+    }
+
+    console.log(`[BULK IMPORT] Pre-created ${attributeMap.size} attributes, reserving site IDs...`);
+
+    // Step 5: Reserve site IDs in bulk
+    const siteIdResult = await client.query(
+      `SELECT nextval('hub_sites_hub_site_id_seq') as id FROM generate_series(1, $1)`,
+      [validFeatures.length]
+    );
+    const siteIds = siteIdResult.rows.map(r => parseInt(r.id, 10));
+
+    console.log(`[BULK IMPORT] Reserved ${siteIds.length} site IDs, bulk inserting sites...`);
+
+    // Step 6: COPY hub_sites
+    const now = new Date().toISOString();
+    const sitesData = siteIds.map(id => `${id},${now}`);
+    await streamToCopy(client, 
+      `COPY hub_sites (hub_site_id, create_dt) FROM STDIN WITH (FORMAT csv)`,
+      sitesData
+    );
+
+    console.log(`[BULK IMPORT] Inserted ${siteIds.length} sites, bulk inserting project links...`);
+
+    // Step 7: COPY lnk_project_site
+    const linksData = siteIds.map(siteId => `${projectId},${siteId},${now}`);
+    await streamToCopy(client,
+      `COPY lnk_project_site (hub_project_id, hub_site_id, create_dt) FROM STDIN WITH (FORMAT csv)`,
+      linksData
+    );
+
+    console.log(`[BULK IMPORT] Inserted ${siteIds.length} project links, preparing geometries...`);
+
+    // Step 8: Insert geometries via temp table (for PostGIS transformation)
+    await client.query(`
+      CREATE TEMP TABLE temp_geom_import (
+        hub_site_id INTEGER,
+        geom_json TEXT,
+        is_state_plane BOOLEAN,
+        record_source_id INTEGER
+      ) ON COMMIT DROP
+    `);
+
+    // Prepare geometry data
+    const geomData = [];
+    for (let i = 0; i < validFeatures.length; i++) {
+      const feature = validFeatures[i];
+      const siteId = siteIds[i];
+      const geomJson = JSON.stringify(feature.geometry);
+      
+      // Detect CRS from coordinates
+      const coords = feature.geometry.coordinates;
+      let firstCoord;
+      try {
+        firstCoord = Array.isArray(coords[0]) 
+          ? (Array.isArray(coords[0][0]) ? coords[0][0][0] : coords[0][0])
+          : coords[0];
+      } catch (e) {
+        firstCoord = 0;
+      }
+      const isStatePlane = typeof firstCoord === 'number' && Math.abs(firstCoord) > 1000;
+      
+      geomData.push(`${siteId},${escapeCsv(geomJson)},${isStatePlane ? 't' : 'f'},${recordSourceId}`);
+    }
+
+    await streamToCopy(client,
+      `COPY temp_geom_import (hub_site_id, geom_json, is_state_plane, record_source_id) FROM STDIN WITH (FORMAT csv)`,
+      geomData
+    );
+
+    console.log(`[BULK IMPORT] Loaded ${geomData.length} geometries to temp table, transforming...`);
+
+    // Insert geometries with proper transformation
+    const geomInsertResult = await client.query(`
+      INSERT INTO sat_site_geometry (hub_site_id, "${geomCol}", record_source_id, start_dt)
+      SELECT 
+        hub_site_id,
+        CASE 
+          WHEN is_state_plane THEN ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 2263)
+          ELSE ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(geom_json), 4326), 2263)
+        END,
+        record_source_id,
+        NOW()
+      FROM temp_geom_import
+      WHERE geom_json IS NOT NULL AND geom_json != ''
+    `);
+
+    console.log(`[BULK IMPORT] Inserted ${geomInsertResult.rowCount} geometries, preparing attributes...`);
+
+    // Step 9: Prepare and COPY sat_site_attributes
+    const attrRows = [];
+    for (let i = 0; i < validFeatures.length; i++) {
+      const feature = validFeatures[i];
+      const siteId = siteIds[i];
+      const props = feature.properties || {};
+      
+      for (const [fieldName, value] of Object.entries(props)) {
+        if (value === null || value === undefined || value === '') continue;
+        
+        const attr = attributeMap.get(fieldName.toLowerCase());
+        if (!attr) continue;
+        
+        let valText = '\\N', valInt = '\\N', valNum = '\\N', valTs = '\\N';
+        
+        switch (attr.attribute_type) {
+          case 'int':
+            const intVal = typeof value === 'boolean' ? (value ? 1 : 0) : parseInt(value, 10);
+            if (!isNaN(intVal)) valInt = intVal;
+            break;
+          case 'num':
+            const numVal = parseFloat(value);
+            if (!isNaN(numVal)) valNum = numVal;
+            break;
+          case 'ts':
+            const tsVal = new Date(value);
+            if (!isNaN(tsVal.getTime())) valTs = tsVal.toISOString();
+            break;
+          default:
+            valText = escapeCsv(String(value));
+        }
+        
+        attrRows.push(`${siteId},${attr.attribute_id},${valText},${valInt},${valNum},${valTs},${recordSourceId},${now}`);
+      }
+      
+      // Log progress
+      if ((i + 1) % 10000 === 0) {
+        console.log(`[BULK IMPORT] Prepared attributes for ${i + 1}/${validFeatures.length} features`);
+      }
+    }
+
+    console.log(`[BULK IMPORT] Inserting ${attrRows.length} attribute values...`);
+
+    if (attrRows.length > 0) {
+      await streamToCopy(client,
+        `COPY sat_site_attributes (hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt) FROM STDIN WITH (FORMAT csv, NULL '\\N')`,
+        attrRows
+      );
+    }
+
+    // Step 10: Link attributes to project
+    console.log(`[BULK IMPORT] Linking ${attributeMap.size} attributes to project...`);
+    
+    let sortOrder = 0;
+    for (const [, attr] of attributeMap) {
+      await client.query(
+        `INSERT INTO sat_project_site_attributes (hub_project_id, attribute_id, sort_order, create_dt)
+         VALUES ($1, $2, $3, NOW()) ON CONFLICT (hub_project_id, attribute_id) DO NOTHING`,
+        [projectId, attr.attribute_id, sortOrder++]
+      );
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[BULK IMPORT] Complete! ${siteIds.length} sites, ${attrRows.length} attributes in ${elapsed}s`);
+
+    res.json({
+      success: true,
+      data: {
+        projectId,
+        projectName,
+        recordSourceId,
+        sitesCreated: siteIds.length,
+        sitesSkipped: skippedFeatures,
+        attributesUsed: attributeMap.size,
+        attributeNames: Array.from(attributeMap.keys()),
+        elapsedSeconds: parseFloat(elapsed)
+      }
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('importProjectFromShapefile error:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = { 
   listProjects, 
   getProjectSites, 
@@ -561,5 +1233,8 @@ module.exports = {
   getSitesWithAttributes,
   getSitesList,
   getAllSites,
-  updateProjectSites
+  updateProjectSites,
+  findSitesFromShapefile,
+  createProjectWithShapefile,
+  importProjectFromShapefile
 };
