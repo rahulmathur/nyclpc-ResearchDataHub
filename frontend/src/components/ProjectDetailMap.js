@@ -1,205 +1,195 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { drawSiteGeometries, createMapView } from '../utils/arcgisMapUtils';
 
 /**
- * Clustered map for ProjectDetail - displays site clusters for better performance
- * Uses the /api/projects/:projectId/sites/clustered endpoint
+ * Map component for ProjectDetail - displays all individual sites for a project
+ * Uses Esri basemap (will prompt for authentication)
  */
-export default function ProjectDetailMap({ projectId, onClusterClick }) {
+export default function ProjectDetailMap({ projectId }) {
   const mapRef = useRef(null);
   const viewRef = useRef(null);
+  const destroyRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [stats, setStats] = useState({ totalSites: 0, clusterCount: 0 });
+  const [totalSites, setTotalSites] = useState(0);
 
   useEffect(() => {
     if (!projectId || !mapRef.current) return;
 
     let destroyed = false;
+    
+    // Safety timeout - ensure loading is cleared after 5 minutes max
+    const safetyTimeout = setTimeout(() => {
+      if (!destroyed) {
+        setLoading(false);
+      }
+    }, 300000); // 5 minutes
 
     const initMap = async () => {
-      // Wait for ArcGIS to be available
-      if (!window.require) {
-        setError('ArcGIS API not loaded');
-        setLoading(false);
-        return;
-      }
-
-      window.require([
-        'esri/Map',
-        'esri/views/MapView',
-        'esri/layers/GraphicsLayer',
-        'esri/Graphic',
-        'esri/geometry/Point',
-        'esri/symbols/SimpleMarkerSymbol',
-        'esri/symbols/TextSymbol',
-        'esri/PopupTemplate'
-      ], async (Map, MapView, GraphicsLayer, Graphic, Point, SimpleMarkerSymbol, TextSymbol, PopupTemplate) => {
+      try {
+        // Fetch all site IDs for the project
+        const sitesRes = await axios.get(`/api/projects/${projectId}/sites?limit=100000`, {
+          timeout: 120000 // 2 minute timeout for large projects
+        });
         if (destroyed) return;
 
-        try {
-          // Fetch clustered data (may take time for large datasets)
-          // Use larger grid size (1000ft) for faster initial load with fewer clusters
-          const res = await axios.get(`/api/projects/${projectId}/sites/clustered?gridSize=1000`, {
-            timeout: 120000 // 2 minute timeout for large projects
-          });
-          if (destroyed) return;
+        const sites = sitesRes.data.data || [];
+        const siteIds = sites.map(site => site.id || site.hub_site_id).filter(id => id != null);
+        setTotalSites(siteIds.length);
 
-          const { clusters, totalSites, clusterCount, bounds } = res.data.data;
-          setStats({ totalSites, clusterCount });
-
-          // Create map
-          const map = new Map({ basemap: 'streets-navigation-vector' });
-
-          // Create view
-          const view = new MapView({
-            container: mapRef.current,
-            map: map,
-            zoom: 10,
-            center: [-73.95, 40.7] // NYC default
-          });
-
-          viewRef.current = view;
-
-          // Create graphics layer for clusters
-          const clusterLayer = new GraphicsLayer();
-          map.add(clusterLayer);
-
-          console.log(`[ProjectDetailMap] Rendering ${clusters.length} clusters for ${totalSites} sites`);
-
-          // Calculate size scale based on counts (ensure counts are numbers)
-          const maxCount = Math.max(...clusters.map(c => parseInt(c.count) || 0), 1);
-          const minSize = 20;
-          const maxSize = 60;
-
-          // Add cluster markers
-          clusters.forEach(cluster => {
-            if (!cluster.geometry || !cluster.geometry.coordinates) return;
-
-            const [lng, lat] = cluster.geometry.coordinates;
-            const count = parseInt(cluster.count);
-            
-            // Scale marker size based on count
-            const size = minSize + ((count / maxCount) * (maxSize - minSize));
-            
-            // Color based on count (blue to red gradient)
-            const intensity = Math.min(count / (maxCount * 0.5), 1);
-            const r = Math.round(50 + intensity * 205);
-            const g = Math.round(130 - intensity * 80);
-            const b = Math.round(200 - intensity * 150);
-
-            const point = new Point({ longitude: lng, latitude: lat });
-
-            // Circle marker
-            const markerSymbol = new SimpleMarkerSymbol({
-              style: 'circle',
-              color: [r, g, b, 0.7],
-              size: size,
-              outline: { color: [255, 255, 255, 0.9], width: 2 }
-            });
-
-            const graphic = new Graphic({
-              geometry: point,
-              symbol: markerSymbol,
-              attributes: {
-                count: count,
-                sampleSiteIds: cluster.sampleSiteIds
-              },
-              popupTemplate: new PopupTemplate({
-                title: `${count.toLocaleString()} Sites`,
-                content: `Sample IDs: ${(cluster.sampleSiteIds || []).slice(0, 5).join(', ')}${cluster.sampleSiteIds?.length > 5 ? '...' : ''}`
-              })
-            });
-
-            clusterLayer.add(graphic);
-
-            // Add count label for larger clusters
-            if (count >= 10 && size >= 25) {
-              const textSymbol = new TextSymbol({
-                text: count >= 1000 ? `${(count/1000).toFixed(1)}k` : count.toString(),
-                color: 'white',
-                font: { size: Math.max(9, size / 4), weight: 'bold' },
-                haloColor: [0, 0, 0, 0.5],
-                haloSize: 1
-              });
-
-              const labelGraphic = new Graphic({
-                geometry: point,
-                symbol: textSymbol
-              });
-              clusterLayer.add(labelGraphic);
-            }
-          });
-
-          // Zoom to bounds if available
-          if (bounds && bounds.coordinates) {
-            try {
-              const coords = bounds.coordinates[0];
-              const xMin = Math.min(...coords.map(c => c[0]));
-              const xMax = Math.max(...coords.map(c => c[0]));
-              const yMin = Math.min(...coords.map(c => c[1]));
-              const yMax = Math.max(...coords.map(c => c[1]));
-              
-              view.goTo({
-                target: {
-                  type: 'extent',
-                  xmin: xMin,
-                  ymin: yMin,
-                  xmax: xMax,
-                  ymax: yMax,
-                  spatialReference: { wkid: 4326 }
-                }
-              }, { duration: 1000 });
-            } catch (e) {
-              console.warn('Could not zoom to bounds:', e);
-            }
-          }
-
-          // Handle cluster click
-          if (onClusterClick) {
-            view.on('click', (event) => {
-              view.hitTest(event).then((response) => {
-                const hit = response.results.find(r => r.graphic && r.graphic.attributes?.sampleSiteIds);
-                if (hit) {
-                  onClusterClick(hit.graphic.attributes);
-                }
-              });
-            });
-          }
-
+        if (siteIds.length === 0) {
+          clearTimeout(safetyTimeout);
+          setError('No sites found for this project');
           setLoading(false);
+          return;
+        }
 
-        } catch (err) {
+        // Get geometries for all sites
+        const geomRes = await axios.post('/api/sites/geometries', { siteIds }, {
+          timeout: 120000
+        });
+        if (destroyed) return;
+
+        const geometries = geomRes.data.data || [];
+
+        if (!mapRef.current) {
+          clearTimeout(safetyTimeout);
+          setError('Map container not available');
+          setLoading(false);
+          return;
+        }
+
+        // Wait for container to have proper dimensions (max 5 seconds)
+        for (let i = 0; i < 50; i++) {
+          const rect = mapRef.current.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Force minimum height if container still has zero dimensions
+        if (mapRef.current) {
+          const rect = mapRef.current.getBoundingClientRect();
+          if (rect.height === 0) {
+            mapRef.current.style.height = '400px';
+            mapRef.current.style.minHeight = '400px';
+          }
+        }
+
+        try {
+          const { view, destroy } = await createMapView(mapRef.current);
+          viewRef.current = view;
+          destroyRef.current = destroy;
+          
+          // Wait for view to be ready (with timeout - authentication may delay this)
+          // We'll proceed even if it times out, as the view may still be functional
+          try {
+            await Promise.race([
+              view.when(),
+              new Promise((resolve) => setTimeout(resolve, 15000)) // 15 second timeout
+            ]);
+          } catch (viewReadyErr) {
+            // Continue anyway - the view might still be usable
+            if (view.destroyed) {
+              throw new Error('View was destroyed during initialization');
+            }
+          }
+          
+          // Give a small delay for view to render if when() didn't resolve
+          if (!view.ready) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+          if (destroyed || !viewRef.current || view.destroyed) {
+            if (!destroyed) {
+              if (destroyRef.current) destroyRef.current();
+              setLoading(false);
+            }
+            return;
+          }
+
+          // Force view to resize to ensure proper rendering
+          try {
+            if (view && typeof view.resize === 'function') {
+              view.resize();
+            }
+          } catch (resizeErr) {
+            // Ignore resize errors
+          }
+
+          // Draw all site geometries (with timeout for large datasets)
+          try {
+            await Promise.race([
+              drawSiteGeometries(view, geometries, { fitBounds: true }),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Drawing geometries timeout')), 180000) // 3 minute timeout
+              )
+            ]);
+          } catch (drawErr) {
+            console.error('[ProjectDetailMap] Error drawing geometries:', drawErr);
+            // Continue even if drawing fails - map should still be visible
+          }
+
+          // Final check before completing
+          if (destroyed || !viewRef.current || view.destroyed) {
+            if (!destroyed) {
+              if (destroyRef.current) destroyRef.current();
+              setLoading(false);
+            }
+            return;
+          }
+
+          clearTimeout(safetyTimeout);
+          setLoading(false);
+          
+        } catch (mapErr) {
           if (!destroyed) {
-            console.error('ProjectDetailMap error:', err);
-            setError(err.message);
+            clearTimeout(safetyTimeout);
+            console.error('[ProjectDetailMap] Error creating map view:', mapErr);
+            setError('Failed to create map: ' + (mapErr?.message || String(mapErr)));
             setLoading(false);
           }
         }
-      });
+      } catch (err) {
+        if (!destroyed) {
+          clearTimeout(safetyTimeout);
+          console.error('[ProjectDetailMap] Error:', err);
+          setError(err.message);
+          setLoading(false);
+        }
+      }
     };
 
     initMap();
 
     return () => {
       destroyed = true;
+      clearTimeout(safetyTimeout);
+      if (destroyRef.current) {
+        destroyRef.current();
+        destroyRef.current = null;
+      }
       if (viewRef.current) {
-        viewRef.current.destroy();
         viewRef.current = null;
       }
     };
-  }, [projectId, onClusterClick]);
+  }, [projectId]);
 
   return (
-    <div className="project-detail-map-container" style={{ position: 'relative' }}>
+    <div className="project-detail-map-container" style={{ position: 'relative', minHeight: '400px' }}>
       <div 
         ref={mapRef} 
+        className="project-detail-map"
         style={{ 
           width: '100%', 
           height: '400px', 
+          minHeight: '400px',
           borderRadius: '8px',
           overflow: 'hidden',
-          background: '#1a1a2e'
+          background: '#1a1a2e',
+          display: 'block'
         }} 
       />
       {loading && (
@@ -210,9 +200,11 @@ export default function ProjectDetailMap({ projectId, onClusterClick }) {
           transform: 'translate(-50%, -50%)',
           color: '#888',
           fontSize: '14px',
-          textAlign: 'center'
+          textAlign: 'center',
+          zIndex: 10,
+          pointerEvents: 'none' // Don't block map interaction
         }}>
-          <div>Loading clustered map...</div>
+          <div>Loading map...</div>
           <div style={{ fontSize: '12px', marginTop: '4px' }}>This may take a minute for large projects</div>
         </div>
       )}
@@ -221,16 +213,13 @@ export default function ProjectDetailMap({ projectId, onClusterClick }) {
           Map error: {error}
         </div>
       )}
-      {!loading && !error && (
+      {!loading && !error && totalSites > 0 && (
         <div style={{ 
           padding: '8px 0', 
           fontSize: '12px', 
-          color: '#888',
-          display: 'flex',
-          justifyContent: 'space-between'
+          color: '#888'
         }}>
-          <span>{stats.totalSites.toLocaleString()} sites in {stats.clusterCount.toLocaleString()} clusters</span>
-          <span style={{ fontSize: '11px' }}>Click a cluster for details</span>
+          <span>Showing {totalSites.toLocaleString()} sites</span>
         </div>
       )}
     </div>

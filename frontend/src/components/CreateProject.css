@@ -20,8 +20,10 @@
 
 /* Ensure map container is visible */
 div[ref="mapRef"],
-div[data-ref="mapRef"] {
-  min-height: 360px;
+div[data-ref="mapRef"],
+.project-detail-map {
+  min-height: 400px !important;
+  height: 400px !important;
   background: var(--bg-secondary);
 }
 
