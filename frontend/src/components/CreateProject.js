@@ -101,13 +101,24 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
     }
   }, [project, schemaFields]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load selected sites for the project
+  // Load selected sites count and IDs for the project
   useEffect(() => {
     if (!project?.id) return;
     (async () => {
       try {
-        const response = await axios.get(`/api/projects/${project.id}/sites`);
+        // Fetch with limit=0 to just get the count, or small limit for IDs
+        const response = await axios.get(`/api/projects/${project.id}/sites?limit=1000`);
         const sites = response.data?.data || [];
+        const pagination = response.data?.pagination;
+        
+        // Set the total count from pagination
+        if (pagination?.total) {
+          setLinkedSitesCount(pagination.total);
+        } else {
+          setLinkedSitesCount(sites.length);
+        }
+        
+        // Store site IDs (up to 1000 for map display)
         setSelectedSites(sites.map(s => s.hub_site_id || s.id));
       } catch (err) {
         console.error('Failed to load project sites:', err);
@@ -361,7 +372,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
                       Add Sites
                     </Button>
                     <Button onClick={() => setSiteModalOpen(true)} style={{ marginLeft: 8 }}>
-                      View Sites ({selectedSites.length})
+                      View Sites ({linkedSitesCount !== null ? linkedSitesCount.toLocaleString() : selectedSites.length})
                     </Button>
                     <Button onClick={() => setAttributeModalOpen(true)} style={{ marginLeft: 8 }}>
                       Site Attributes ({selectedAttributes.length})

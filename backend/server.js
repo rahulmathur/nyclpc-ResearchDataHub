@@ -42,7 +42,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Database connection based on DB_TYPE in .env
 let db;
@@ -185,6 +186,7 @@ app.post('/api/projects/import-shapefile', upload.single('shapefile'), projectsC
 app.put('/api/projects/:projectId', projectsController.updateProject);
 app.delete('/api/projects/:projectId', projectsController.deleteProject);
 app.get('/api/projects/:projectId/sites', projectsController.getProjectSites);
+app.get('/api/projects/:projectId/sites/clustered', projectsController.getProjectSitesClustered);
 app.put('/api/projects/:projectId/sites', projectsController.updateProjectSites);
 app.get('/api/projects/:projectId/site-attributes', projectsController.getProjectSiteAttributes);
 app.put('/api/projects/:projectId/site-attributes', projectsController.updateProjectSiteAttributes);

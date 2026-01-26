@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { Segment, Header, List, Loader, Message, Button, Grid, Table, Modal } from 'semantic-ui-react';
+import { Segment, Header, List, Loader, Message, Button, Grid, Table, Modal, Pagination, Select } from 'semantic-ui-react';
 import SiteDetail from './SiteDetail';
+import ProjectDetailMap from './ProjectDetailMap';
 import './ProjectDetail.css';
 
 function ProjectDetail({ onViewSiteDetail }) {
@@ -16,6 +17,12 @@ function ProjectDetail({ onViewSiteDetail }) {
   const [lastProjectsRaw, setLastProjectsRaw] = useState(null);
   const [siteDetailModalOpen, setSiteDetailModalOpen] = useState(false);
   const [siteToView, setSiteToView] = useState(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalSites, setTotalSites] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
   const projectsRef = useRef(null);
 
@@ -50,9 +57,34 @@ function ProjectDetail({ onViewSiteDetail }) {
     }
   };
 
+  const loadSites = useCallback(async (projectId, page = 1, limit = pageSize) => {
+    if (!projectId) return;
+    
+    setLoadingSites(true);
+    setError(null);
+    try {
+      const offset = (page - 1) * limit;
+      const res = await axios.get(`/api/projects/${encodeURIComponent(projectId)}/sites?limit=${limit}&offset=${offset}`);
+      setSites(res.data.data || []);
+      
+      // Update pagination info
+      if (res.data.pagination) {
+        setTotalSites(res.data.pagination.total);
+        setTotalPages(res.data.pagination.totalPages);
+        setCurrentPage(res.data.pagination.page);
+      }
+    } catch (err) {
+      console.error('loadSites error', err);
+      setError(err.response?.data?.error || err.message || 'Failed to load sites for project');
+    } finally {
+      setLoadingSites(false);
+    }
+  }, [pageSize]);
+
   const selectProject = async (project) => {
     setSelectedProject(project);
     setSelectedSite(null);
+    setCurrentPage(1);
     setStep(2);
 
     const projectId = getId(project);
@@ -61,17 +93,18 @@ function ProjectDetail({ onViewSiteDetail }) {
       return;
     }
 
-    setLoadingSites(true);
-    setError(null);
-    try {
-      const res = await axios.get(`/api/projects/${encodeURIComponent(projectId)}/sites`);
-      setSites(res.data.data || []);
-    } catch (err) {
-      console.error('selectProject error', err);
-      setError(err.response?.data?.error || err.message || 'Failed to load sites for project');
-    } finally {
-      setLoadingSites(false);
-    }
+    await loadSites(projectId, 1, pageSize);
+  };
+  
+  const handlePageChange = (e, { activePage }) => {
+    setCurrentPage(activePage);
+    loadSites(getId(selectedProject), activePage, pageSize);
+  };
+  
+  const handlePageSizeChange = (e, { value }) => {
+    setPageSize(value);
+    setCurrentPage(1);
+    loadSites(getId(selectedProject), 1, value);
   };
 
   const confirm = () => {
@@ -162,8 +195,21 @@ function ProjectDetail({ onViewSiteDetail }) {
 
         {step === 2 && (
           <div className="project-detail-step">
-            <Header as="h4">Selected project: <strong>{selectedProject?.name || selectedProject?.id}</strong></Header>
+            <Header as="h4">Selected project: <strong>{selectedProject?.project_nm || selectedProject?.name || selectedProject?.id}</strong></Header>
             <p>Select a site linked to this project.</p>
+
+            {/* Clustered Map */}
+            {selectedProject && (
+              <div style={{ marginBottom: '16px', position: 'relative' }}>
+                <ProjectDetailMap 
+                  projectId={getId(selectedProject)}
+                  onClusterClick={(cluster) => {
+                    console.log('Cluster clicked:', cluster);
+                    // Could filter table or zoom to specific sites
+                  }}
+                />
+              </div>
+            )}
 
             {loadingSites ? (
               <Loader active inline="centered">Loading sites...</Loader>
@@ -220,6 +266,50 @@ function ProjectDetail({ onViewSiteDetail }) {
                     ))}
                   </Table.Body>
                 </Table>
+                
+                {/* Pagination Controls */}
+                <div className="pagination-controls" style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  marginTop: '16px',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: '#888', fontSize: '13px' }}>
+                      Showing {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalSites)} of {totalSites.toLocaleString()} sites
+                    </span>
+                    <Select
+                      compact
+                      options={[
+                        { key: 25, value: 25, text: '25 per page' },
+                        { key: 50, value: 50, text: '50 per page' },
+                        { key: 100, value: 100, text: '100 per page' },
+                        { key: 250, value: 250, text: '250 per page' },
+                      ]}
+                      value={pageSize}
+                      onChange={handlePageSizeChange}
+                      style={{ minWidth: '120px' }}
+                    />
+                  </div>
+                  
+                  {totalPages > 1 && (
+                    <Pagination
+                      activePage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={handlePageChange}
+                      ellipsisItem={{ content: '...', disabled: true }}
+                      firstItem={totalPages > 5 ? { content: '«', icon: true } : null}
+                      lastItem={totalPages > 5 ? { content: '»', icon: true } : null}
+                      prevItem={{ content: '‹', icon: true }}
+                      nextItem={{ content: '›', icon: true }}
+                      siblingRange={1}
+                      boundaryRange={1}
+                      size="mini"
+                    />
+                  )}
+                </div>
               </div>
             )}
 

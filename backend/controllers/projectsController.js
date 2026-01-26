@@ -16,8 +16,81 @@ async function listProjects(req, res) {
   }
 }
 
+// Get clustered/simplified geometries for project sites (for map display)
+async function getProjectSitesClustered(req, res) {
+  const { projectId } = req.params;
+  const gridSize = parseFloat(req.query.gridSize) || 500; // Grid size in feet (State Plane units)
+  
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
+
+    // Get geometry column name
+    const geomColRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
+    );
+    const geomCol = geomColRes.rows[0]?.column_name || 'shape';
+
+    // Cluster sites using ST_SnapToGrid and aggregate
+    // Returns cluster centroid (in WGS84), count, and sample site IDs
+    // Optimized: compute grid cell directly without intermediate centroid CTE
+    const result = await pool.query(`
+      SELECT 
+        ST_AsGeoJSON(ST_Transform(ST_SetSRID(ST_MakePoint(
+          (floor(ST_X(ST_Centroid(g."${geomCol}")) / $2) * $2) + ($2 / 2),
+          (floor(ST_Y(ST_Centroid(g."${geomCol}")) / $2) * $2) + ($2 / 2)
+        ), 2263), 4326))::json as geometry,
+        COUNT(*) as site_count,
+        (array_agg(g.hub_site_id ORDER BY g.hub_site_id))[1:5] as sample_site_ids
+      FROM sat_site_geometry g
+      JOIN lnk_project_site l ON g.hub_site_id = l.hub_site_id
+      WHERE l.hub_project_id = $1
+        AND g."${geomCol}" IS NOT NULL
+      GROUP BY 
+        floor(ST_X(ST_Centroid(g."${geomCol}")) / $2),
+        floor(ST_Y(ST_Centroid(g."${geomCol}")) / $2)
+      ORDER BY site_count DESC
+    `, [projectId, gridSize]);
+
+    // Also get total count and bounding box
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT g.hub_site_id) as total_sites,
+        ST_AsGeoJSON(ST_Transform(ST_Envelope(ST_Collect(g."${geomCol}")), 4326))::json as bounds
+      FROM sat_site_geometry g
+      JOIN lnk_project_site l ON g.hub_site_id = l.hub_site_id
+      WHERE l.hub_project_id = $1
+        AND g."${geomCol}" IS NOT NULL
+    `, [projectId]);
+
+    const clusters = result.rows.map(r => ({
+      geometry: r.geometry,
+      count: parseInt(r.site_count) || 0,
+      sampleSiteIds: r.sample_site_ids?.slice(0, 5) || []
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        clusters,
+        totalSites: parseInt(statsResult.rows[0]?.total_sites) || 0,
+        bounds: statsResult.rows[0]?.bounds,
+        clusterCount: clusters.length,
+        gridSize
+      }
+    });
+  } catch (error) {
+    console.error('getProjectSitesClustered error:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
 async function getProjectSites(req, res) {
   const { projectId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
@@ -37,7 +110,14 @@ async function getProjectSites(req, res) {
       // ref_attributes may not exist; skip BIN lookup
     }
     
-    // Build the query with LEFT JOINs for BBL and BIN
+    // Get total count first
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as total FROM lnk_project_site WHERE hub_project_id = $1`,
+      [projectId]
+    );
+    const total = parseInt(countResult.rows[0].total) || 0;
+    
+    // Build the query with LEFT JOINs for BBL and BIN, with pagination
     // BBL comes from sat_site_bbl, BIN comes from sat_site_attributes
     const result = await pool.query(`
       SELECT 
@@ -52,10 +132,21 @@ async function getProjectSites(req, res) {
       JOIN lnk_project_site l ON s.hub_site_id = l.hub_site_id
       WHERE l.hub_project_id = $1
       ORDER BY s.hub_site_id
-    `, [projectId]);
+      LIMIT $2 OFFSET $3
+    `, [projectId, limit, offset]);
     
     const sites = result.rows.map(r => ({ ...r, id: r.hub_site_id }));
-    res.json({ success: true, data: sites });
+    res.json({ 
+      success: true, 
+      data: sites,
+      pagination: {
+        total,
+        limit,
+        offset,
+        page: Math.floor(offset / limit) + 1,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -227,9 +318,12 @@ async function getSiteAttributes(req, res) {
   }
 }
 
-// Get sites with attribute values for project's selected attributes
+// Get sites with attribute values for project's selected attributes (paginated)
 async function getSitesWithAttributes(req, res) {
   const { projectId } = req.params;
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  
   try {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
@@ -244,14 +338,22 @@ async function getSitesWithAttributes(req, res) {
     `, [projectId]);
     const attributes = attrsResult.rows;
     
-    // Get only sites linked to this project
+    // Get total count first
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as total FROM lnk_project_site WHERE hub_project_id = $1`,
+      [projectId]
+    );
+    const total = parseInt(countResult.rows[0].total) || 0;
+    
+    // Get paginated sites linked to this project
     const sitesResult = await pool.query(`
       SELECT hs.hub_site_id 
       FROM hub_sites hs
       JOIN lnk_project_site lps ON hs.hub_site_id = lps.hub_site_id
       WHERE lps.hub_project_id = $1
       ORDER BY hs.hub_site_id
-    `, [projectId]);
+      LIMIT $2 OFFSET $3
+    `, [projectId, limit, offset]);
     
     // Build sites map for quick lookup
     const sitesMap = new Map();
@@ -261,7 +363,7 @@ async function getSitesWithAttributes(req, res) {
       siteIds.push(s.hub_site_id);
     }
     
-    // Batch fetch attribute data only for project's sites
+    // Batch fetch attribute data only for current page's sites
     for (const attr of attributes) {
       const attrKey = `attr_${attr.attribute_id}`;
       const attrData = await getBatchAttributeValues(pool, attr, siteIds);
@@ -279,7 +381,14 @@ async function getSitesWithAttributes(req, res) {
         id: a.attribute_id,
         name: a.attribute_nm,
         key: `attr_${a.attribute_id}`
-      }))
+      })),
+      pagination: {
+        total,
+        limit,
+        offset,
+        page: Math.floor(offset / limit) + 1,
+        totalPages: Math.ceil(total / limit)
+      }
     });
   } catch (error) {
     console.error('getSitesWithAttributes error:', error);
@@ -337,15 +446,17 @@ async function getBatchAttributeValues(pool, attr, siteIds = null) {
       } else if (attrText === 'built') {
         const query = await pool.query(`SELECT hub_site_id, date_combo FROM sat_site_built ${siteFilterNoAlias} ORDER BY hub_site_id, start_dt`, params);
         groupAndSet(query.rows, result, 'date_combo');
-      } else if (attrText === 'alteration') {
-        const query = await pool.query(`
-          SELECT sa.hub_site_id, a.alteration_nm
-          FROM sat_site_alteration sa
-          JOIN ref_alteration a ON sa.alteration_id = a.alteration_id
-          ${siteIds?.length ? 'WHERE sa.hub_site_id = ANY($1)' : ''}
-          ORDER BY sa.hub_site_id, sa.sort_order
-        `, params);
-        groupAndSet(query.rows, result, 'alteration_nm');
+      // Note: ref_alteration table does not exist in current schema
+      // } else if (attrText === 'alteration') {
+      //   const query = await pool.query(`
+      //     SELECT sa.hub_site_id, a.alteration_nm
+      //     FROM sat_site_alteration sa
+      //     JOIN ref_alteration a ON sa.alteration_id = a.alteration_id
+      //     ${siteIds?.length ? 'WHERE sa.hub_site_id = ANY($1)' : ''}
+      //     ORDER BY sa.hub_site_id, sa.sort_order
+      //   `, params);
+      //   groupAndSet(query.rows, result, 'alteration_nm');
+      // }
       }
       
     } else if (attrType === 'refs' || attrType === 'ref') {
@@ -1130,8 +1241,25 @@ async function importProjectFromShapefile(req, res) {
 
     console.log(`[BULK IMPORT] Inserted ${geomInsertResult.rowCount} geometries, preparing attributes...`);
 
-    // Step 9: Prepare and COPY sat_site_attributes
-    const attrRows = [];
+    // Step 9: Use temp table for attributes (faster than direct COPY for large datasets)
+    await client.query(`
+      CREATE TEMP TABLE temp_attr_import (
+        hub_site_id INTEGER,
+        attribute_id INTEGER,
+        attribute_value_text TEXT,
+        attribute_value_int INTEGER,
+        attribute_value_number NUMERIC,
+        attribute_value_ts TIMESTAMP,
+        record_source_id INTEGER,
+        start_dt TIMESTAMP
+      ) ON COMMIT DROP
+    `);
+
+    // Process attributes in batches of 100K rows
+    const BATCH_SIZE = 100000;
+    let attrBatch = [];
+    let totalAttrs = 0;
+    
     for (let i = 0; i < validFeatures.length; i++) {
       const feature = validFeatures[i];
       const siteId = siteIds[i];
@@ -1162,23 +1290,39 @@ async function importProjectFromShapefile(req, res) {
             valText = escapeCsv(String(value));
         }
         
-        attrRows.push(`${siteId},${attr.attribute_id},${valText},${valInt},${valNum},${valTs},${recordSourceId},${now}`);
-      }
-      
-      // Log progress
-      if ((i + 1) % 10000 === 0) {
-        console.log(`[BULK IMPORT] Prepared attributes for ${i + 1}/${validFeatures.length} features`);
+        attrBatch.push(`${siteId},${attr.attribute_id},${valText},${valInt},${valNum},${valTs},${recordSourceId},${now}`);
+        totalAttrs++;
+        
+        // Flush batch when full
+        if (attrBatch.length >= BATCH_SIZE) {
+          await streamToCopy(client,
+            `COPY temp_attr_import (hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt) FROM STDIN WITH (FORMAT csv, NULL '\\N')`,
+            attrBatch
+          );
+          console.log(`[BULK IMPORT] Loaded ${totalAttrs} attributes to temp table...`);
+          attrBatch = [];
+        }
       }
     }
-
-    console.log(`[BULK IMPORT] Inserting ${attrRows.length} attribute values...`);
-
-    if (attrRows.length > 0) {
+    
+    // Flush remaining batch
+    if (attrBatch.length > 0) {
       await streamToCopy(client,
-        `COPY sat_site_attributes (hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt) FROM STDIN WITH (FORMAT csv, NULL '\\N')`,
-        attrRows
+        `COPY temp_attr_import (hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt) FROM STDIN WITH (FORMAT csv, NULL '\\N')`,
+        attrBatch
       );
     }
+
+    console.log(`[BULK IMPORT] Loaded ${totalAttrs} attributes to temp table, inserting to final table...`);
+
+    // Bulk insert from temp table to final table
+    const attrInsertResult = await client.query(`
+      INSERT INTO sat_site_attributes (hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt)
+      SELECT hub_site_id, attribute_id, attribute_value_text, attribute_value_int, attribute_value_number, attribute_value_ts, record_source_id, start_dt
+      FROM temp_attr_import
+    `);
+
+    console.log(`[BULK IMPORT] Inserted ${attrInsertResult.rowCount} attribute values`);
 
     // Step 10: Link attributes to project
     console.log(`[BULK IMPORT] Linking ${attributeMap.size} attributes to project...`);
@@ -1196,7 +1340,7 @@ async function importProjectFromShapefile(req, res) {
     await client.query('COMMIT');
     
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[BULK IMPORT] Complete! ${siteIds.length} sites, ${attrRows.length} attributes in ${elapsed}s`);
+    console.log(`[BULK IMPORT] Complete! ${siteIds.length} sites, ${totalAttrs} attributes in ${elapsed}s`);
 
     res.json({
       success: true,
@@ -1223,7 +1367,8 @@ async function importProjectFromShapefile(req, res) {
 
 module.exports = { 
   listProjects, 
-  getProjectSites, 
+  getProjectSites,
+  getProjectSitesClustered,
   createProject, 
   updateProject, 
   deleteProject,
