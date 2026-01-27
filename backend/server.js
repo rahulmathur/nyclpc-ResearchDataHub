@@ -26,6 +26,14 @@ const upload = multer({
     }
   }
 });
+
+// Configure multer for Box.com uploads (accepts all file types)
+const uploadBox = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit for Box.com
+  },
+});
 const PORT = process.env.PORT || 5001;
 
 // Middleware
@@ -196,6 +204,14 @@ app.get('/api/sites/list', projectsController.getSitesList);
 app.get('/api/sites', projectsController.getAllSites);
 // Find sites from shapefile (standalone endpoint)
 app.post('/api/sites/from-shapefile', upload.single('shapefile'), projectsController.findSitesFromShapefile);
+
+// Box.com file management endpoints
+const boxController = require('./controllers/boxController');
+app.get('/api/box/verify', boxController.verifyBoxToken);
+app.get('/api/projects/:projectId/files', boxController.getProjectFiles);
+app.post('/api/projects/:projectId/files', uploadBox.single('file'), boxController.uploadFile);
+app.post('/api/projects/:projectId/folders', boxController.createFolder);
+app.delete('/api/projects/:projectId/files/:fileId', boxController.deleteFile);
 
 // Health check
 app.get('/api/health', async (req, res) => {

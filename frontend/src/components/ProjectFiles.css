@@ -1,0 +1,11 @@
+.project-files-modal {
+  /* Custom styling if needed */
+}
+
+.project-files-modal .ui.table {
+  margin-top: 0;
+}
+
+.project-files-modal .ui.message {
+  margin-bottom: 16px;
+}

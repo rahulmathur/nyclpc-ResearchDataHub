@@ -169,6 +169,23 @@ async function createProject(req, res) {
       }
     }
 
+    // Ensure hub_project_guid is generated if not provided
+    // Check if hub_project_guid column exists
+    const columnCheck = await getPool().query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+        AND table_name = $1 
+        AND column_name = 'hub_project_guid'
+    `, [tableName]);
+
+    if (columnCheck.rows.length > 0 && !data.hub_project_guid) {
+      // Column exists but GUID not provided - let database generate it via DEFAULT
+      // Don't include hub_project_guid in INSERT, let DEFAULT handle it
+    } else if (columnCheck.rows.length > 0 && data.hub_project_guid) {
+      // GUID provided, use it
+    }
+
     const columns = Object.keys(data).join(', ');
     if (!columns) return res.status(400).json({ error: 'No data provided' });
     const values = Object.values(data);
@@ -203,7 +220,7 @@ async function updateProject(req, res) {
     }
 
     const pk = await getPrimaryKey(tableName) || 'hub_project_id';
-    const { [pk]: _pk, ...updateData } = data;
+    const { [pk]: _pk, hub_project_guid: _guid, ...updateData } = data; // Exclude hub_project_guid from updates
     const keys = Object.keys(updateData);
     if (keys.length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');

@@ -3,9 +3,11 @@ import { Segment, Header, Form, Button, Grid, Message, Icon } from 'semantic-ui-
 import axios from 'axios';
 import './CreateProject.css';
 import CreateProjectMap from './CreateProjectMap';
+import ProjectDetailMap from './ProjectDetailMap';
 import SiteSelectionModal from './SiteSelectionModal';
 import AddSitesModal from './AddSitesModal';
 import AttributeSelectionModal from './AttributeSelectionModal';
+import ProjectFiles from './ProjectFiles';
 
 export default function CreateProject({ onCreated, onCancel, project, onViewSiteDetail }) {
   const [form, setForm] = useState({
@@ -27,6 +29,7 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
   const [selectedSites, setSelectedSites] = useState([]);
   const [attributeModalOpen, setAttributeModalOpen] = useState(false);
   const [selectedAttributes, setSelectedAttributes] = useState([]);
+  const [filesModalOpen, setFilesModalOpen] = useState(false);
   
   // Shapefile upload state
   const [shapefile, setShapefile] = useState(null);
@@ -377,6 +380,10 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
                     <Button onClick={() => setAttributeModalOpen(true)} style={{ marginLeft: 8 }}>
                       Site Attributes ({selectedAttributes.length})
                     </Button>
+                    <Button onClick={() => setFilesModalOpen(true)} style={{ marginLeft: 8 }}>
+                      <Icon name="cloud" />
+                      Manage Files
+                    </Button>
                     <Button color="red" onClick={async () => {
                       if (!project?.id) return;
                       if (!window.confirm('Are you sure you want to delete this project?')) return;
@@ -412,16 +419,30 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
           </Grid.Column>
 
           <Grid.Column width={8}>
-            <CreateProjectMap
-              siteIds={selectedSites}
-              latitude={form.latitude}
-              longitude={form.longitude}
-              onPositionChange={setPosition}
-              height={360}
-            />
-            <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
-              Click on the map to set the project's location. You can also enter latitude/longitude manually.
-            </div>
+            {/* Show all sites map when editing a project with sites */}
+            {project?.id && linkedSitesCount > 0 ? (
+              <>
+                <ProjectDetailMap 
+                  projectId={project.id}
+                />
+                <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
+                  Showing {linkedSitesCount?.toLocaleString()} sites
+                </div>
+              </>
+            ) : (
+              <>
+                <CreateProjectMap
+                  siteIds={selectedSites}
+                  latitude={form.latitude}
+                  longitude={form.longitude}
+                  onPositionChange={setPosition}
+                  height={360}
+                />
+                <div className="map-note" style={{ marginTop: 8, color: 'var(--text-dim)' }}>
+                  Click on the map to set the project's location. You can also enter latitude/longitude manually.
+                </div>
+              </>
+            )}
           </Grid.Column>
         </Grid>
 
@@ -450,6 +471,14 @@ export default function CreateProject({ onCreated, onCancel, project, onViewSite
             onClose={() => setAttributeModalOpen(false)}
             projectId={project.id}
             onAttributesSelected={setSelectedAttributes}
+          />
+        )}
+
+        {project && (
+          <ProjectFiles
+            open={filesModalOpen}
+            onClose={() => setFilesModalOpen(false)}
+            projectId={project.id}
           />
         )}
       </Segment>
