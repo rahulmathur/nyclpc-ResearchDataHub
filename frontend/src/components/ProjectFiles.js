@@ -14,6 +14,7 @@ export default function ProjectFiles({ open, onClose, projectId }) {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState(null);
+  const [lastUploaded, setLastUploaded] = useState(null); // { boxPath, boxUrl, name } after upload
   const fileInputRef = useRef(null);
 
   const loadFiles = useCallback(async () => {
@@ -45,15 +46,24 @@ export default function ProjectFiles({ open, onClose, projectId }) {
     setUploading(true);
     setError(null);
     setSuccess(null);
+    setLastUploaded(null);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      await axios.post(`/api/projects/${projectId}/files`, formData, {
+      const { data } = await axios.post(`/api/projects/${projectId}/files`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
+      const uploaded = data?.data;
+      if (uploaded?.boxPath != null || uploaded?.boxUrl != null) {
+        setLastUploaded({
+          name: uploaded.name ?? file.name,
+          boxPath: uploaded.boxPath ?? null,
+          boxUrl: uploaded.boxUrl ?? null,
+        });
+      }
       setSuccess(`File "${file.name}" uploaded successfully`);
       await loadFiles();
       if (fileInputRef.current) {
@@ -76,6 +86,7 @@ export default function ProjectFiles({ open, onClose, projectId }) {
     setCreatingFolder(true);
     setError(null);
     setSuccess(null);
+    setLastUploaded(null);
 
     try {
       await axios.post(`/api/projects/${projectId}/folders`, {
@@ -109,6 +120,7 @@ export default function ProjectFiles({ open, onClose, projectId }) {
     try {
       const qs = fileToDelete.type === 'folder' ? '?type=folder' : '';
       await axios.delete(`/api/projects/${projectId}/files/${fileToDelete.id}${qs}`);
+      setLastUploaded(null);
       setSuccess(`${fileToDelete.type === 'folder' ? 'Folder' : 'File'} "${fileToDelete.name}" deleted successfully`);
       await loadFiles();
     } catch (err) {
@@ -173,8 +185,24 @@ export default function ProjectFiles({ open, onClose, projectId }) {
             </Message>
           )}
           {success && (
-            <Message positive onDismiss={() => setSuccess(null)}>
-              {success}
+            <Message positive onDismiss={() => { setSuccess(null); setLastUploaded(null); }}>
+              <Message.Header>{success}</Message.Header>
+              {lastUploaded?.boxPath != null && (
+                <p style={{ marginTop: 8, marginBottom: 4 }}>
+                  <strong>Path:</strong>{' '}
+                  <code className="box-path" style={{ fontSize: '0.9em', wordBreak: 'break-all' }}>
+                    {lastUploaded.boxPath}
+                  </code>
+                </p>
+              )}
+              {lastUploaded?.boxUrl != null && (
+                <p style={{ marginTop: 4, marginBottom: 0 }}>
+                  <strong>Open in Box:</strong>{' '}
+                  <a href={lastUploaded.boxUrl} target="_blank" rel="noopener noreferrer">
+                    {lastUploaded.boxUrl}
+                  </a>
+                </p>
+              )}
             </Message>
           )}
 
@@ -250,6 +278,8 @@ export default function ProjectFiles({ open, onClose, projectId }) {
                   <Table.HeaderCell>Name</Table.HeaderCell>
                   <Table.HeaderCell>Type</Table.HeaderCell>
                   <Table.HeaderCell>Size</Table.HeaderCell>
+                  <Table.HeaderCell>Path</Table.HeaderCell>
+                  <Table.HeaderCell>Open in Box</Table.HeaderCell>
                   <Table.HeaderCell>Modified</Table.HeaderCell>
                   <Table.HeaderCell>Actions</Table.HeaderCell>
                 </Table.Row>
@@ -263,6 +293,24 @@ export default function ProjectFiles({ open, onClose, projectId }) {
                     </Table.Cell>
                     <Table.Cell>{file.type === 'folder' ? 'Folder' : 'File'}</Table.Cell>
                     <Table.Cell>{formatFileSize(file.size)}</Table.Cell>
+                    <Table.Cell>
+                      {file.boxPath ? (
+                        <code className="box-path" style={{ fontSize: '0.85em', wordBreak: 'break-all' }} title={file.boxPath}>
+                          {file.boxPath}
+                        </code>
+                      ) : (
+                        '-'
+                      )}
+                    </Table.Cell>
+                    <Table.Cell>
+                      {file.boxUrl ? (
+                        <a href={file.boxUrl} target="_blank" rel="noopener noreferrer" title="Open in Box">
+                          <Icon name="external alternate" /> Open
+                        </a>
+                      ) : (
+                        '-'
+                      )}
+                    </Table.Cell>
                     <Table.Cell>{formatDate(file.modifiedAt)}</Table.Cell>
                     <Table.Cell>
                       <Button

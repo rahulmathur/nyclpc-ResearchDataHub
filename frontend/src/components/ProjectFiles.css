@@ -9,3 +9,18 @@
 .project-files-modal .ui.message {
   margin-bottom: 16px;
 }
+
+.project-files-modal .box-path {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.project-files-modal .ui.message .box-path {
+  max-width: none;
+  white-space: normal;
+  word-break: break-all;
+}

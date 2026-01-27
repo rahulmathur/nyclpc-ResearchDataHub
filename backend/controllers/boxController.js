@@ -73,12 +73,17 @@ function getBoxClient() {
   // otherwise enterpriseId. "box_subject_type unauthorized" usually means the app
   // expects user-level auth but we sent enterprise (or vice versa).
   const configOpts = { clientId, clientSecret };
+  
   if (userId) {
-    configOpts.userId = String(userId).trim();
-    console.log('Box.com: Using Client Credentials (CCG) with Service Account (user)');
+    const userIdStr = String(userId).trim();
+    configOpts.userId = userIdStr;
+    console.log(`Box.com: Using Client Credentials (CCG) with Service Account (User ID: ${userIdStr})`);
+    console.log(`Box.com: NOTE: If you see "invalid_grant" errors, the Box app may not be configured for user-level CCG.`);
+    console.log(`Box.com: Configure user-level CCG in Box Developer Console → your app → Configuration → Advanced Features → Service Account.`);
   } else if (enterpriseId) {
-    configOpts.enterpriseId = String(enterpriseId).trim();
-    console.log('Box.com: Using Client Credentials (CCG) with Enterprise');
+    const enterpriseIdStr = String(enterpriseId).trim();
+    configOpts.enterpriseId = enterpriseIdStr;
+    console.log(`Box.com: Using Client Credentials (CCG) with Enterprise (Enterprise ID: ${enterpriseIdStr})`);
   } else {
     throw new Error('Set either BOX_USER_ID (Service Account) or BOX_ENTERPRISE_ID for Client Credentials Grant.');
   }
@@ -169,6 +174,18 @@ function getProjectFolderPath(projectGuid) {
   return `/${rootFolder}/${baseFolder}/${projectGuid}/`;
 }
 
+// Build full Box path for an item (file or folder) inside the project folder.
+function getBoxItemPath(projectGuid, itemName) {
+  const base = getProjectFolderPath(projectGuid);
+  return base + (itemName || '').replace(/^\/+/, '');
+}
+
+// Box web URL for a file or folder (opens in Box app; user must have access).
+function getBoxItemUrl(id, type) {
+  const kind = type === 'folder' ? 'folder' : 'file';
+  return `https://app.box.com/${kind}/${id}`;
+}
+
 // Ensure project folder exists on Box.com
 async function ensureProjectFolder(pool, projectId) {
   try {
@@ -252,6 +269,16 @@ async function ensureProjectFolder(pool, projectId) {
     }
 
     console.log(`Box.com: Project folder ensured: ${currentFolderId}`);
+    
+    // Log which account owns this folder
+    try {
+      const folderInfo = await client.folders.getFolderById(currentFolderId);
+      const owner = folderInfo.ownedBy;
+      console.log(`Box.com: Folder owned by account: ${owner?.id || 'unknown'} (${owner?.name || owner?.login || 'unknown'})`);
+    } catch (err) {
+      // Ignore - folder exists, that's what matters
+    }
+    
     return { folderId: currentFolderId, projectGuid };
   } catch (error) {
     console.error('Error ensuring project folder:', error);
@@ -270,14 +297,37 @@ async function verifyBoxToken(req, res) {
   try {
     const client = getBoxClient();
     const user = await client.users.getUserMe();
+    
+    // Determine authentication method
+    const developerToken = process.env.BOX_DEVELOPER_TOKEN?.trim();
+    const userId = process.env.BOX_USER_ID?.trim();
+    const enterpriseId = process.env.BOX_ENTERPRISE_ID?.trim();
+    
+    let authMethod = 'Unknown';
+    if (developerToken) {
+      authMethod = 'Developer Token';
+    } else if (userId) {
+      authMethod = `User-level CCG (User ID: ${userId})`;
+    } else if (enterpriseId) {
+      authMethod = `Enterprise-level CCG (Enterprise ID: ${enterpriseId})`;
+    }
+    
+    console.log(`Box.com: Verified authentication - Account: ${user.id} (${user.name || user.login}), Method: ${authMethod}`);
+    
     res.json({
       success: true,
       message: 'Box token is valid',
+      authMethod,
       user: {
         id: user.id,
         name: user.name,
         login: user.login,
       },
+      note: developerToken 
+        ? 'Using Developer Token - files go to the token owner\'s account'
+        : userId
+        ? `Using User-level CCG - files should go to User ID ${userId}`
+        : `Using Enterprise-level CCG - files go to enterprise service account (Enterprise ID: ${enterpriseId})`,
     });
   } catch (error) {
     console.error('Box verify token error:', error.message);
@@ -293,7 +343,7 @@ async function getProjectFiles(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
 
-    const { folderId } = await ensureProjectFolder(pool, projectId);
+    const { folderId, projectGuid } = await ensureProjectFolder(pool, projectId);
     const client = getBoxClient();
 
     const result = await client.folders.getFolderItems(folderId, {
@@ -301,15 +351,21 @@ async function getProjectFiles(req, res) {
     });
 
     const entries = result.entries || [];
-    const files = entries.map(item => ({
-      id: item.id,
-      name: item.name,
-      type: item.type || (item.size != null ? 'file' : 'folder'),
-      size: item.size ?? 0,
-      modifiedAt: item.modifiedAt ?? item.modified_at,
-      createdAt: item.createdAt ?? item.created_at,
-      extension: item.extension ?? null,
-    }));
+    const itemType = (item) => item.type || (item.size != null ? 'file' : 'folder');
+    const files = entries.map(item => {
+      const type = itemType(item);
+      return {
+        id: item.id,
+        name: item.name,
+        type,
+        size: item.size ?? 0,
+        modifiedAt: item.modifiedAt ?? item.modified_at,
+        createdAt: item.createdAt ?? item.created_at,
+        extension: item.extension ?? null,
+        boxPath: getBoxItemPath(projectGuid, item.name),
+        boxUrl: getBoxItemUrl(item.id, type),
+      };
+    });
 
     res.json({ success: true, data: files });
   } catch (error) {
@@ -318,44 +374,176 @@ async function getProjectFiles(req, res) {
   }
 }
 
+// Get project folder URL and optionally create shared link
+async function getProjectFolderInfo(req, res) {
+  const { projectId } = req.params;
+  const { createSharedLink } = req.query; // ?createSharedLink=true
+
+  try {
+    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
+    const pool = getPool();
+
+    const { folderId, projectGuid } = await ensureProjectFolder(pool, projectId);
+    const client = getBoxClient();
+
+    // Get folder info
+    const folder = await client.folders.getFolderById(folderId);
+    const boxPath = getProjectFolderPath(projectGuid);
+    const boxUrl = getBoxItemUrl(folderId, 'folder');
+
+    let sharedLink = null;
+    
+    // Optionally create a shared link
+    if (createSharedLink === 'true') {
+      try {
+        // Create or get shared link
+        const updatedFolder = await client.folders.updateFolder(folderId, {
+          sharedLink: {
+            access: 'open', // 'open', 'company', 'collaborators'
+          },
+        });
+        sharedLink = updatedFolder.sharedLink?.url || null;
+        console.log(`Box.com: Created shared link for folder ${folderId}: ${sharedLink}`);
+      } catch (linkError) {
+        console.warn(`Box.com: Could not create shared link: ${linkError.message}`);
+        // Continue without shared link
+      }
+    } else {
+      // Check if folder already has a shared link
+      if (folder.sharedLink?.url) {
+        sharedLink = folder.sharedLink.url;
+      }
+    }
+
+    // Get current user to show who owns the folder
+    const currentUser = await client.users.getUserMe();
+
+    res.json({
+      success: true,
+      data: {
+        folderId,
+        folderName: folder.name,
+        boxPath,
+        boxUrl,
+        sharedLink,
+        ownedBy: {
+          id: folder.ownedBy?.id || currentUser.id,
+          name: folder.ownedBy?.name || currentUser.name,
+          login: folder.ownedBy?.login || currentUser.login,
+        },
+        currentAccount: {
+          id: currentUser.id,
+          name: currentUser.name,
+          login: currentUser.login,
+        },
+        note: sharedLink 
+          ? 'Use the sharedLink URL to access this folder without logging in'
+          : 'Set ?createSharedLink=true to generate a shared link for easy access',
+      },
+    });
+  } catch (error) {
+    console.error('Error getting project folder info:', error);
+    return handleBoxError(error, res, 'Failed to retrieve folder information');
+  }
+}
+
 // Upload file to project folder
 async function uploadFile(req, res) {
   const { projectId } = req.params;
 
   try {
+    console.log(`Box.com: Upload request received for project ${projectId}`);
+    
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) {
+      console.log('Box.com: No file in request (req.file is null/undefined)');
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const fileName = req.file.originalname || 'upload';
+    const fileSize = req.file.buffer?.length || 0;
+    console.log(`Box.com: Uploading file "${fileName}" (${fileSize} bytes)`);
 
     const pool = getPool();
-    const { folderId } = await ensureProjectFolder(pool, projectId);
+    const { folderId, projectGuid } = await ensureProjectFolder(pool, projectId);
     const client = getBoxClient();
+    
+    // Log which account is being used for upload
+    try {
+      const currentUser = await client.users.getUserMe();
+      console.log(`Box.com: Uploading to account: ${currentUser.id} (${currentUser.name || currentUser.login})`);
+    } catch (err) {
+      console.warn('Box.com: Could not verify upload account:', err.message);
+    }
 
     const fileStream = Readable.from(req.file.buffer);
-    const fileName = req.file.originalname || 'upload';
     const contentType = req.file.mimetype || 'application/octet-stream';
+    const CHUNKED_UPLOAD_MIN_SIZE = 20 * 1024 * 1024; // 20MB
 
-    const file = await client.uploads.uploadFile({
-      attributes: {
-        name: fileName,
-        parent: { id: folderId },
-      },
-      file: fileStream,
-      fileFileName: fileName,
-      fileContentType: contentType,
-    });
+    let uploadedFile;
+    
+    if (fileSize >= CHUNKED_UPLOAD_MIN_SIZE) {
+      // Files >= 20MB must use chunked upload
+      console.log(`Box.com: File size ${fileSize} bytes >= ${CHUNKED_UPLOAD_MIN_SIZE} bytes, using chunked upload...`);
+      uploadedFile = await client.chunkedUploads.uploadBigFile(
+        fileStream,
+        fileName,
+        fileSize,
+        folderId
+      );
+    } else {
+      // Files < 20MB use simple upload
+      console.log(`Box.com: File size ${fileSize} bytes < ${CHUNKED_UPLOAD_MIN_SIZE} bytes, using simple upload...`);
+      const uploadResult = await client.uploads.uploadFile({
+        attributes: {
+          name: fileName,
+          parent: { id: folderId },
+        },
+        file: fileStream,
+        fileFileName: fileName,
+        fileContentType: contentType,
+      });
+      // uploadFile returns Files collection - get first entry
+      uploadedFile = uploadResult.entries?.[0];
+      if (!uploadedFile) {
+        throw new Error('Upload succeeded but no file returned in response');
+      }
+    }
+    const boxPath = getBoxItemPath(projectGuid, uploadedFile.name);
+    const boxUrl = getBoxItemUrl(uploadedFile.id, 'file');
+    console.log(`Box.com: File uploaded successfully: ${uploadedFile.id} (${uploadedFile.name})`);
+    console.log(`Box.com: Path: ${boxPath}`);
+    console.log(`Box.com: URL: ${boxUrl}`);
+    
+    // Log which account the file was uploaded to
+    try {
+      const currentUser = await client.users.getUserMe();
+      console.log(`Box.com: File uploaded to account: ${currentUser.id} (${currentUser.name || currentUser.login})`);
+      console.log(`Box.com: To view files, log into Box.com as this account or an admin with access to this account.`);
+    } catch (err) {
+      // Ignore - already logged above
+    }
 
     res.json({
       success: true,
       data: {
-        id: file.id,
-        name: file.name,
-        size: file.size,
-        createdAt: file.createdAt ?? file.created_at,
-        modifiedAt: file.modifiedAt ?? file.modified_at,
+        id: uploadedFile.id,
+        name: uploadedFile.name,
+        size: uploadedFile.size,
+        createdAt: uploadedFile.createdAt ?? uploadedFile.created_at,
+        modifiedAt: uploadedFile.modifiedAt ?? uploadedFile.modified_at,
+        boxPath,
+        boxUrl,
       },
     });
   } catch (error) {
     console.error('Error uploading file:', error);
+    if (error.responseInfo) {
+      console.error('Box API Response:', {
+        statusCode: error.responseInfo.statusCode,
+        body: error.responseInfo.body,
+      });
+    }
     return handleBoxError(error, res, 'Failed to upload file');
   }
 }
@@ -375,13 +563,16 @@ async function createFolder(req, res) {
     if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
 
-    const { folderId } = await ensureProjectFolder(pool, projectId);
+    const { folderId, projectGuid } = await ensureProjectFolder(pool, projectId);
     const client = getBoxClient();
 
     const folder = await client.folders.createFolder({
       name: sanitizedName,
       parent: { id: folderId },
     });
+
+    const boxPath = getBoxItemPath(projectGuid, folder.name);
+    const boxUrl = getBoxItemUrl(folder.id, 'folder');
 
     res.json({
       success: true,
@@ -391,6 +582,8 @@ async function createFolder(req, res) {
         type: 'folder',
         createdAt: folder.createdAt ?? folder.created_at,
         modifiedAt: folder.modifiedAt ?? folder.modified_at,
+        boxPath,
+        boxUrl,
       },
     });
   } catch (error) {
@@ -471,6 +664,7 @@ async function deleteFile(req, res) {
 module.exports = {
   verifyBoxToken,
   getProjectFiles,
+  getProjectFolderInfo,
   uploadFile,
   createFolder,
   deleteFile,

@@ -209,6 +209,7 @@ app.post('/api/sites/from-shapefile', upload.single('shapefile'), projectsContro
 const boxController = require('./controllers/boxController');
 app.get('/api/box/verify', boxController.verifyBoxToken);
 app.get('/api/projects/:projectId/files', boxController.getProjectFiles);
+app.get('/api/projects/:projectId/folder-info', boxController.getProjectFolderInfo);
 app.post('/api/projects/:projectId/files', uploadBox.single('file'), boxController.uploadFile);
 app.post('/api/projects/:projectId/folders', boxController.createFolder);
 app.delete('/api/projects/:projectId/files/:fileId', boxController.deleteFile);
