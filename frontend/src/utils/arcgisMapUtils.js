@@ -24,14 +24,22 @@ export function createMapView(containerEl, opts = {}) {
       }
 
       window.require(
-        ['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent'],
-        (Map, MapView, Extent) => {
+        ['esri/Map', 'esri/views/MapView', 'esri/geometry/Extent', 'esri/config'],
+        (Map, MapView, Extent, esriConfig) => {
+          console.log('[ArcGIS] Modules loaded, containerEl:', containerEl);
           if (!containerEl) {
             reject(new Error('ArcGIS: container unmounted'));
             return;
           }
           try {
-            const map = new Map({ basemap: 'arcgis-streets' });
+            // Set API key for authenticated basemaps (free tier: 2M tiles/month)
+            if (process.env.REACT_APP_ARCGIS_API_KEY && !esriConfig.apiKey) {
+              esriConfig.apiKey = process.env.REACT_APP_ARCGIS_API_KEY;
+              console.log('[ArcGIS] API key set');
+            }
+            console.log('[ArcGIS] Creating map...');
+            const map = new Map({ basemap: 'streets' }); // Esri streets basemap
+            console.log('[ArcGIS] Map created, creating view...');
             const extent = new Extent({
               xmin: NYC_EXTENT.xmin,
               ymin: NYC_EXTENT.ymin,
@@ -40,6 +48,7 @@ export function createMapView(containerEl, opts = {}) {
               spatialReference: { wkid: NYC_EXTENT.wkid }
             });
             const view = new MapView({ container: containerEl, map, extent });
+            console.log('[ArcGIS] View created:', view);
 
             const destroy = () => {
               try {
@@ -55,6 +64,7 @@ export function createMapView(containerEl, opts = {}) {
           }
         },
         (err) => {
+          console.error('[ArcGIS] Module load error:', err);
           if (retries < 30) setTimeout(tryInit, 100);
           else reject(err || new Error('ArcGIS modules failed to load'));
         }
@@ -176,6 +186,174 @@ export function drawSiteGeometries(view, siteGeoms, opts = {}) {
           }
           resolve();
         } catch (e) {
+          reject(e);
+        }
+      },
+      reject
+    );
+  });
+}
+
+/**
+ * Draw site geometries with clustering for large datasets.
+ * Uses FeatureLayer with featureReduction for efficient rendering of many points.
+ * @param {import('esri/views/MapView').default} view
+ * @param {object[]} siteGeoms - each: { hub_site_id, geometry } (GeoJSON or string)
+ * @param {{ fitBounds?: boolean, onProgress?: (pct: number) => void }} [opts]
+ * @returns {Promise<{ layer: any, destroy: () => void }>}
+ */
+export function drawSiteGeometriesClustered(view, siteGeoms, opts = {}) {
+  const { fitBounds = true, onProgress } = opts;
+
+  if (!view || !siteGeoms || siteGeoms.length === 0) {
+    return Promise.resolve({ layer: null, destroy: () => {} });
+  }
+
+  return new Promise((resolve, reject) => {
+    if (!window.require) {
+      resolve({ layer: null, destroy: () => {} });
+      return;
+    }
+
+    window.require(
+      [
+        'esri/layers/FeatureLayer',
+        'esri/geometry/Point',
+        'esri/Graphic'
+      ],
+      (FeatureLayer, Point, Graphic) => {
+        try {
+          console.log(`[ArcGIS] Creating clustered layer for ${siteGeoms.length} sites...`);
+          if (onProgress) onProgress(10);
+
+          // Convert geometries to point graphics (using centroids)
+          const graphics = [];
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+          siteGeoms.forEach((row, idx) => {
+            try {
+              let geomData = row.geometry ?? row.shape ?? row.geom ?? row.the_geom;
+              if (typeof geomData === 'string') geomData = JSON.parse(geomData);
+              if (!geomData || !geomData.type) return;
+
+              const centroid = getCentroid(geomData);
+              if (!centroid) return;
+
+              // Track bounds
+              if (centroid.x < minX) minX = centroid.x;
+              if (centroid.x > maxX) maxX = centroid.x;
+              if (centroid.y < minY) minY = centroid.y;
+              if (centroid.y > maxY) maxY = centroid.y;
+
+              const point = new Point({
+                x: centroid.x,
+                y: centroid.y,
+                spatialReference: { wkid: 4326 }
+              });
+
+              graphics.push(new Graphic({
+                geometry: point,
+                attributes: {
+                  ObjectID: idx,
+                  hub_site_id: row.hub_site_id || idx,
+                  name: row.name || `Site ${row.hub_site_id || idx}`
+                }
+              }));
+            } catch (e) { /* skip invalid */ }
+          });
+
+          console.log(`[ArcGIS] Created ${graphics.length} point graphics`);
+          if (onProgress) onProgress(50);
+
+          if (graphics.length === 0) {
+            resolve({ layer: null, destroy: () => {} });
+            return;
+          }
+
+          // Create FeatureLayer with clustering
+          const clusterConfig = {
+            type: 'cluster',
+            clusterRadius: '100px',
+            clusterMinSize: '24px',
+            clusterMaxSize: '60px',
+            labelingInfo: [{
+              deconflictionStrategy: 'none',
+              labelExpressionInfo: {
+                expression: "Text($feature.cluster_count, '#,###')"
+              },
+              symbol: {
+                type: 'text',
+                color: 'white',
+                font: { weight: 'bold', family: 'Noto Sans', size: '12px' },
+                haloSize: 1,
+                haloColor: 'rgba(0,0,0,0.5)'
+              },
+              labelPlacement: 'center-center'
+            }],
+            popupTemplate: {
+              title: 'Cluster',
+              content: '{cluster_count} sites in this area'
+            }
+          };
+
+          const layer = new FeatureLayer({
+            source: graphics,
+            objectIdField: 'ObjectID',
+            fields: [
+              { name: 'ObjectID', type: 'oid' },
+              { name: 'hub_site_id', type: 'integer' },
+              { name: 'name', type: 'string' }
+            ],
+            renderer: {
+              type: 'simple',
+              symbol: {
+                type: 'simple-marker',
+                style: 'circle',
+                color: [0, 113, 188, 0.8],
+                size: '12px',
+                outline: { color: [255, 255, 255], width: 1.5 }
+              }
+            },
+            featureReduction: clusterConfig,
+            popupTemplate: {
+              title: 'Site {hub_site_id}',
+              content: '{name}'
+            }
+          });
+
+          view.map.add(layer);
+          console.log('[ArcGIS] Clustered layer added to map');
+          if (onProgress) onProgress(80);
+
+          // Zoom to bounds
+          if (fitBounds && minX !== Infinity) {
+            view.goTo({
+              target: {
+                type: 'extent',
+                xmin: minX,
+                ymin: minY,
+                xmax: maxX,
+                ymax: maxY,
+                spatialReference: { wkid: 4326 }
+              },
+              padding: { top: 50, left: 50, right: 50, bottom: 50 }
+            }).catch(() => {});
+          }
+
+          if (onProgress) onProgress(100);
+
+          const destroy = () => {
+            try {
+              view.map.remove(layer);
+              layer.destroy();
+            } catch (e) {
+              console.warn('Clustered layer destroy:', e);
+            }
+          };
+
+          resolve({ layer, destroy });
+        } catch (e) {
+          console.error('[ArcGIS] Clustering error:', e);
           reject(e);
         }
       },

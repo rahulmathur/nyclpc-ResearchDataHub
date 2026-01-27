@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { drawSiteGeometries, createMapView } from '../utils/arcgisMapUtils';
+import { drawSiteGeometriesClustered, createMapView } from '../utils/arcgisMapUtils';
 
 /**
  * Map component for ProjectDetail - displays all individual sites for a project
@@ -10,7 +10,11 @@ export default function ProjectDetailMap({ projectId }) {
   const mapRef = useRef(null);
   const viewRef = useRef(null);
   const destroyRef = useRef(null);
+  const clusterDestroyRef = useRef(null);
   const [loading, setLoading] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [loadingStage, setLoadingStage] = useState('Initializing...');
   const [error, setError] = useState(null);
   const [totalSites, setTotalSites] = useState(0);
 
@@ -18,6 +22,9 @@ export default function ProjectDetailMap({ projectId }) {
     if (!projectId || !mapRef.current) return;
 
     let destroyed = false;
+    setMapReady(false);
+    setProgress(0);
+    setLoadingStage('Initializing...');
     
     // Safety timeout - ensure loading is cleared after 5 minutes max
     const safetyTimeout = setTimeout(() => {
@@ -28,7 +35,9 @@ export default function ProjectDetailMap({ projectId }) {
 
     const initMap = async () => {
       try {
-        // Fetch all site IDs for the project
+        // Stage 1: Fetch site IDs
+        setLoadingStage('Fetching sites...');
+        setProgress(5);
         const sitesRes = await axios.get(`/api/projects/${projectId}/sites?limit=100000`, {
           timeout: 120000 // 2 minute timeout for large projects
         });
@@ -37,6 +46,7 @@ export default function ProjectDetailMap({ projectId }) {
         const sites = sitesRes.data.data || [];
         const siteIds = sites.map(site => site.id || site.hub_site_id).filter(id => id != null);
         setTotalSites(siteIds.length);
+        setProgress(15);
 
         if (siteIds.length === 0) {
           clearTimeout(safetyTimeout);
@@ -45,13 +55,17 @@ export default function ProjectDetailMap({ projectId }) {
           return;
         }
 
-        // Get geometries for all sites
+        // Stage 2: Fetch geometries
+        setLoadingStage(`Fetching ${siteIds.length.toLocaleString()} geometries...`);
+        setProgress(20);
         const geomRes = await axios.post('/api/sites/geometries', { siteIds }, {
           timeout: 120000
         });
         if (destroyed) return;
 
         const geometries = geomRes.data.data || [];
+        setProgress(40);
+        setLoadingStage('Creating map...');
 
         if (!mapRef.current) {
           clearTimeout(safetyTimeout);
@@ -119,18 +133,29 @@ export default function ProjectDetailMap({ projectId }) {
             // Ignore resize errors
           }
 
-          // Draw all site geometries (with timeout for large datasets)
+          // Draw all site geometries with clustering (much faster for large datasets)
+          setLoadingStage(`Rendering ${geometries.length.toLocaleString()} sites...`);
+          setProgress(50);
           try {
-            await Promise.race([
-              drawSiteGeometries(view, geometries, { fitBounds: true }),
-              new Promise((_, reject) => 
+            const { destroy: clusterDestroy } = await Promise.race([
+              drawSiteGeometriesClustered(view, geometries, {
+                fitBounds: true,
+                onProgress: (pct) => setProgress(50 + Math.round(pct * 0.45)) // 50-95%
+              }),
+              new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Drawing geometries timeout')), 180000) // 3 minute timeout
               )
             ]);
+            clusterDestroyRef.current = clusterDestroy;
           } catch (drawErr) {
             console.error('[ProjectDetailMap] Error drawing geometries:', drawErr);
             // Continue even if drawing fails - map should still be visible
           }
+          setProgress(100);
+
+          // Small delay for map to settle before revealing
+          await new Promise(resolve => setTimeout(resolve, 300));
+          setMapReady(true);
 
           // Final check before completing
           if (destroyed || !viewRef.current || view.destroyed) {
@@ -167,6 +192,10 @@ export default function ProjectDetailMap({ projectId }) {
     return () => {
       destroyed = true;
       clearTimeout(safetyTimeout);
+      if (clusterDestroyRef.current) {
+        clusterDestroyRef.current();
+        clusterDestroyRef.current = null;
+      }
       if (destroyRef.current) {
         destroyRef.current();
         destroyRef.current = null;
@@ -179,33 +208,58 @@ export default function ProjectDetailMap({ projectId }) {
 
   return (
     <div className="project-detail-map-container" style={{ position: 'relative', minHeight: '400px' }}>
-      <div 
-        ref={mapRef} 
+      <div
+        ref={mapRef}
         className="project-detail-map"
-        style={{ 
-          width: '100%', 
-          height: '400px', 
+        style={{
+          width: '100%',
+          height: '400px',
           minHeight: '400px',
           borderRadius: '8px',
           overflow: 'hidden',
           background: '#1a1a2e',
-          display: 'block'
-        }} 
+          display: 'block',
+          opacity: mapReady ? 1 : 0,
+          transition: 'opacity 0.4s ease-in-out'
+        }}
       />
       {loading && (
-        <div style={{ 
-          position: 'absolute', 
-          top: '50%', 
-          left: '50%', 
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
           transform: 'translate(-50%, -50%)',
           color: '#888',
           fontSize: '14px',
           textAlign: 'center',
           zIndex: 10,
-          pointerEvents: 'none' // Don't block map interaction
+          pointerEvents: 'none',
+          width: '80%',
+          maxWidth: '300px'
         }}>
-          <div>Loading map...</div>
-          <div style={{ fontSize: '12px', marginTop: '4px' }}>This may take a minute for large projects</div>
+          <div style={{ marginBottom: '8px' }}>{loadingStage}</div>
+          {totalSites > 0 && (
+            <div style={{ fontSize: '12px', marginBottom: '8px', color: '#aaa' }}>
+              {totalSites.toLocaleString()} sites
+            </div>
+          )}
+          <div style={{
+            background: 'rgba(255,255,255,0.2)',
+            borderRadius: '4px',
+            height: '8px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              background: '#0071bc',
+              height: '100%',
+              width: `${progress}%`,
+              transition: 'width 0.3s ease-out',
+              borderRadius: '4px'
+            }} />
+          </div>
+          <div style={{ fontSize: '11px', marginTop: '4px', color: '#aaa' }}>
+            {progress}%
+          </div>
         </div>
       )}
       {error && (
