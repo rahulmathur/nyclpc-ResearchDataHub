@@ -6,6 +6,7 @@ const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const { requireDatabaseConnection } = require('./middleware/dbConnection');
 
 const app = express();
 
@@ -53,6 +54,9 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Database connection middleware - ensures DB is connected for all API routes except /health
+app.use('/api', requireDatabaseConnection);
+
 // Database connection based on DB_TYPE in .env
 let db;
 
@@ -97,11 +101,10 @@ app.post('/api/query', runQuery);
 // Get all tables (PostgreSQL only)
 app.get('/api/tables', async (req, res) => {
   try {
-    if (!db) return res.status(500).json({ error: 'Database not connected' });
     const result = await db.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
       ORDER BY table_name
     `);
     const tables = result.rows.map(row => row.table_name);
@@ -117,7 +120,6 @@ app.post('/api/sites/geometries', async (req, res) => {
   const { getPool } = require('./db');
   try {
     const pool = getPool();
-    if (!pool) return res.status(500).json({ error: 'Database not connected' });
     if (!Array.isArray(siteIds) || siteIds.length === 0) return res.json({ success: true, data: [] });
     const ids = siteIds.map((id) => parseInt(String(id), 10)).filter((n) => !isNaN(n));
     if (ids.length === 0) return res.json({ success: true, data: [] });
@@ -150,7 +152,6 @@ app.get('/api/sites/:siteId/geometry', async (req, res) => {
   const { getPool } = require('./db');
   try {
     const pool = getPool();
-    if (!pool) return res.status(500).json({ error: 'Database not connected' });
     const geomColRes = await pool.query(
       `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
     );

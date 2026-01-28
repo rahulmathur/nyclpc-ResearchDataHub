@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Segment, Header, Table, Button, Icon, Loader, Message, Form } from 'semantic-ui-react';
 import axios from 'axios';
+import { useDelete } from '../hooks';
 import './SitesList.css';
 
 const PAGE_SIZE_OPTS = [25, 50, 100, 250];
@@ -108,17 +109,11 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
     setOffset(0);
   };
 
-  const handleDelete = async (s) => {
-    if (!window.confirm(`Delete site "${s.name || s.id}"?`)) return;
-    try {
-      await axios.delete(`/api/table/hub_sites/${s.id || s.hub_site_id}`);
-      load();
-      if (onChange) onChange();
-    } catch (err) {
-      console.error('Delete failed', err);
-      setError(err.response?.data?.error || err.message || 'Failed to delete site');
-    }
-  };
+  // Use delete hook for site deletion
+  const { handleDelete, error: deleteError } = useDelete('/api/table/hub_sites', async () => {
+    load();
+    if (onChange) onChange();
+  }, 'site');
 
   const rangeStart = count === 0 ? 0 : offset + 1;
   const rangeEnd = count === 0 ? 0 : Math.min(offset + pageSize, count);
@@ -194,7 +189,7 @@ export default function SitesList({ onEdit, onCreate, onChange }) {
       </div>
 
       {loading ? <Loader active inline="centered" /> : null}
-      {error && <Message negative content={error} />}
+      {(error || deleteError) && <Message negative content={error || deleteError} />}
 
       <Table celled selectable compact>
         <Table.Header>

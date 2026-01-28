@@ -1,70 +1,32 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Segment, Header, Table, Button, Icon, Loader, Message } from 'semantic-ui-react';
-import axios from 'axios';
+import { useTableData, useDelete } from '../hooks';
 
 export default function ProjectsList({ onEdit, onCreate, onChange }) {
-  const [projects, setProjects] = useState([]);
-  const [schemaFields, setSchemaFields] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { data: projects, schema, loading, error, load } = useTableData('hub_projects', '/api/projects');
 
-  // Fetch schema columns for hub_projects
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await axios.get('/api/columns/hub_projects');
-        const cols = res.data?.columns || [];
-        if (!mounted) return;
-        if (cols.length > 0) {
-          // Exclude primary key columns; include other fields
-          const fields = cols.map(c => c.column_name).filter(cn => cn !== 'hub_project_id');
-          setSchemaFields(fields);
-        } else {
-          // Fallback to common field names
-          setSchemaFields(['name', 'description', 'address', 'borough', 'latitude', 'longitude']);
-        }
-      } catch (e) {
-        console.warn('Failed to fetch columns schema, using fallback', e);
-        setSchemaFields(['name', 'description', 'address', 'borough', 'latitude', 'longitude']);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await axios.get('/api/projects');
-      setProjects(res.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load projects', err);
-      setError(err.response?.data?.error || err.message || 'Failed to load projects');
-    } finally {
-      setLoading(false);
+  // Extract field names from schema, excluding primary key
+  const schemaFields = useMemo(() => {
+    if (!schema || schema.length === 0) {
+      return ['name', 'description', 'address', 'borough', 'latitude', 'longitude'];
     }
-  };
+    return schema.map(c => c.column_name).filter(cn => cn !== 'hub_project_id');
+  }, [schema]);
 
-  useEffect(() => { load(); }, []);
+  // Delete handler with success callback
+  const { handleDelete, error: deleteError } = useDelete('/api/projects', async () => {
+    await load();
+    if (onChange) onChange();
+  }, 'project');
 
-  const handleDelete = async (p) => {
-    if (!window.confirm(`Delete project "${p.name || p.id}"?`)) return;
-    try {
-      await axios.delete(`/api/projects/${p.id}`);
-      await load();
-      if (onChange) onChange();
-    } catch (err) {
-      console.error('Delete failed', err);
-      setError(err.response?.data?.error || err.message || 'Failed to delete project');
-    }
-  };
+  // Load data on mount
+  useEffect(() => { load(); }, [load]);
 
   return (
     <Segment>
       <Header as="h3">Projects <Button primary size="small" onClick={() => { if (onCreate) onCreate(); }} style={{ float: 'right' }}>New Project</Button></Header>
       {loading ? <Loader active inline="centered" /> : null}
-      {error && <Message negative content={error} />}
+      {(error || deleteError) && <Message negative content={error || deleteError} />}
 
       <Table celled selectable compact>
         <Table.Header>

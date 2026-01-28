@@ -40,4 +40,58 @@ async function getPrimaryKey(tableName) {
   return null;
 }
 
-module.exports = { getEnumMap, validateTableName, getPrimaryKey };
+/**
+ * Gets all geometry column names for a table
+ * @param {string} tableName - The name of the table
+ * @returns {Promise<string[]>} Array of geometry column names
+ */
+async function getGeometryColumns(tableName) {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1 AND udt_name = 'geometry'`,
+    [tableName]
+  );
+  return result.rows.map(r => r.column_name);
+}
+
+/**
+ * Gets the first geometry column for a table, or null if none exists
+ * @param {string} tableName - The name of the table
+ * @returns {Promise<string|null>} The geometry column name or null
+ */
+async function getGeometryColumn(tableName) {
+  const columns = await getGeometryColumns(tableName);
+  return columns[0] || null;
+}
+
+/**
+ * Normalizes a record by adding an `id` property from the primary key column
+ * @param {Object} record - The database record
+ * @param {string} pkColumn - The name of the primary key column
+ * @returns {Object} The record with an added `id` property
+ */
+function normalizeRecord(record, pkColumn) {
+  if (!record || !pkColumn) return record;
+  return { ...record, id: record[pkColumn] };
+}
+
+/**
+ * Normalizes an array of records by adding `id` property from the primary key column
+ * @param {Object[]} records - Array of database records
+ * @param {string} pkColumn - The name of the primary key column
+ * @returns {Object[]} Array of records with added `id` properties
+ */
+function normalizeRecords(records, pkColumn) {
+  return records.map(r => normalizeRecord(r, pkColumn));
+}
+
+module.exports = {
+  getEnumMap,
+  validateTableName,
+  getPrimaryKey,
+  getGeometryColumns,
+  getGeometryColumn,
+  normalizeRecord,
+  normalizeRecords
+};

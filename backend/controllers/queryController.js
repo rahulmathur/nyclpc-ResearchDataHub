@@ -14,8 +14,6 @@ async function runQuery(req, res) {
   }
 
   const db = getPool();
-  if (!db) return res.status(500).json({ error: 'Database not connected' });
-
   const client = await db.connect();
   try {
     await client.query('BEGIN');

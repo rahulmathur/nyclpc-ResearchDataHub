@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-BASE_URL=${BASE_URL:-"http://localhost:5000"}
+BASE_URL=${BASE_URL:-"http://localhost:5001"}
 
 echo "Checking health..."
 curl -fsS "$BASE_URL/api/health" || { echo "Health check failed"; exit 2; }

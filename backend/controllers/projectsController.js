@@ -1,5 +1,6 @@
 const { getPool } = require('../db');
-const { getEnumMap, getPrimaryKey } = require('../db/utils');
+const { getEnumMap, getPrimaryKey, getGeometryColumn, normalizeRecord, normalizeRecords } = require('../db/utils');
+const { validateEnumFields } = require('../db/validators');
 const shapefile = require('shapefile');
 const AdmZip = require('adm-zip');
 const { from: copyFrom } = require('pg-copy-streams');
@@ -7,9 +8,8 @@ const { Readable } = require('stream');
 
 async function listProjects(req, res) {
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const result = await getPool().query('SELECT * FROM hub_projects ORDER BY hub_project_id');
-    const projects = result.rows.map(r => ({ ...r, id: r.hub_project_id }));
+    const projects = normalizeRecords(result.rows, 'hub_project_id');
     res.json({ success: true, data: projects });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -20,17 +20,12 @@ async function listProjects(req, res) {
 async function getProjectSitesClustered(req, res) {
   const { projectId } = req.params;
   const gridSize = parseFloat(req.query.gridSize) || 500; // Grid size in feet (State Plane units)
-  
+
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
 
     // Get geometry column name
-    const geomColRes = await pool.query(
-      `SELECT column_name FROM information_schema.columns 
-       WHERE table_schema = 'public' AND table_name = 'sat_site_geometry' AND udt_name = 'geometry'`
-    );
-    const geomCol = geomColRes.rows[0]?.column_name || 'shape';
+    const geomCol = await getGeometryColumn('sat_site_geometry') || 'shape';
 
     // Cluster sites using ST_SnapToGrid and aggregate
     // Returns cluster centroid (in WGS84), count, and sample site IDs
@@ -90,9 +85,8 @@ async function getProjectSites(req, res) {
   const { projectId } = req.params;
   const limit = parseInt(req.query.limit) || 50;
   const offset = parseInt(req.query.offset) || 0;
-  
+
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
     
     // Find the BIN attribute_id from ref_attributes
@@ -157,16 +151,10 @@ async function createProject(req, res) {
   const data = req.body || {};
   const tableName = 'hub_projects';
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-
     // Validate enum fields if present
-    const enumMap = await getEnumMap(tableName);
-    for (const [k, v] of Object.entries(data)) {
-      if (v == null) continue;
-      const allowed = enumMap[k];
-      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
-        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
-      }
+    const validation = await validateEnumFields(tableName, data);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
     }
 
     // Ensure hub_project_guid is generated if not provided
@@ -208,15 +196,10 @@ async function updateProject(req, res) {
   const data = req.body || {};
   const tableName = 'hub_projects';
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-
-    const enumMap = await getEnumMap(tableName);
-    for (const [k, v] of Object.entries(data)) {
-      if (v == null) continue;
-      const allowed = enumMap[k];
-      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
-        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
-      }
+    // Validate enum fields if present
+    const validation = await validateEnumFields(tableName, data);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
     }
 
     const pk = await getPrimaryKey(tableName) || 'hub_project_id';
@@ -245,7 +228,6 @@ async function deleteProject(req, res) {
   const { projectId } = req.params;
   const tableName = 'hub_projects';
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
 
     // 1. Delete project-site links (avoids lnk_project_site_hub_project_id_fkey violation)
@@ -272,7 +254,6 @@ async function deleteProject(req, res) {
 async function getProjectSiteAttributes(req, res) {
   const { projectId } = req.params;
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const result = await getPool().query(`
       SELECT psa.sat_project_site_attributes_id, psa.hub_project_id, psa.attribute_id, psa.create_dt,
              psa.sort_order,
@@ -293,7 +274,6 @@ async function updateProjectSiteAttributes(req, res) {
   const { projectId } = req.params;
   const { attributeIds } = req.body || {};
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!Array.isArray(attributeIds)) {
       return res.status(400).json({ error: 'attributeIds must be an array' });
     }
@@ -322,7 +302,6 @@ async function updateProjectSiteAttributes(req, res) {
 // Get all available site attributes (attribute_p_or_s = 'S')
 async function getSiteAttributes(req, res) {
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const result = await getPool().query(`
       SELECT attribute_id, attribute_nm, attribute_text, attribute_desc, attribute_type
       FROM ref_attributes
@@ -340,9 +319,8 @@ async function getSitesWithAttributes(req, res) {
   const { projectId } = req.params;
   const limit = parseInt(req.query.limit) || 50;
   const offset = parseInt(req.query.offset) || 0;
-  
+
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
     
     // Get project's selected attributes ordered by sort_order
@@ -541,7 +519,6 @@ function groupAndSet(rows, resultMap, valueKey) {
 // Query params: siteId, bin, material, style, use, type (all optional), limit (default 500, max 1000), offset (default 0).
 async function getSitesList(req, res) {
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
 
     const siteId = (req.query.siteId || '').trim();
@@ -640,7 +617,6 @@ async function getSitesList(req, res) {
 // Query params: limit (default 100, max 500, 0 = count only), offset (default 0), q (optional search on hub_site_id)
 async function getAllSites(req, res) {
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
     const limit = Math.min(Math.max(0, parseInt(req.query.limit, 10) || 100), 500);
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
@@ -683,7 +659,6 @@ async function updateProjectSites(req, res) {
   const { projectId } = req.params;
   const { siteIds } = req.body || {};
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!Array.isArray(siteIds)) {
       return res.status(400).json({ error: 'siteIds must be an array' });
     }
@@ -784,8 +759,6 @@ function combineGeometries(geojson) {
 // Find sites that intersect with the given GeoJSON geometry
 async function findSitesFromShapefile(req, res) {
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
-    
     if (!req.file) {
       return res.status(400).json({ error: 'No shapefile uploaded. Please upload a .zip file containing .shp, .shx, and .dbf files.' });
     }
@@ -854,9 +827,8 @@ async function findSitesFromShapefile(req, res) {
 async function createProjectWithShapefile(req, res) {
   const tableName = 'hub_projects';
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     const pool = getPool();
-    
+
     // Parse form data - fields come as strings in multipart
     let data = {};
     if (req.body) {
@@ -877,13 +849,9 @@ async function createProjectWithShapefile(req, res) {
     }
 
     // Validate enum fields if present
-    const enumMap = await getEnumMap(tableName);
-    for (const [k, v] of Object.entries(data)) {
-      if (v == null) continue;
-      const allowed = enumMap[k];
-      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
-        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
-      }
+    const validation = await validateEnumFields(tableName, data);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
     }
 
     const columns = Object.keys(data).join(', ');

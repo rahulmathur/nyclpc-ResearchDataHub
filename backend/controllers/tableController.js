@@ -1,5 +1,6 @@
 const { getPool } = require('../db');
-const { getEnumMap, validateTableName, getPrimaryKey } = require('../db/utils');
+const { validateTableName, getPrimaryKey, getGeometryColumns } = require('../db/utils');
+const { validateEnumFields } = require('../db/validators');
 
 async function getTableData(req, res) {
   const { tableName } = req.params;
@@ -10,15 +11,10 @@ async function getTableData(req, res) {
   if (limit > MAX_LIMIT) limit = MAX_LIMIT;
 
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
 
     // Get geometry columns so we can convert them to GeoJSON
-    const geomColRes = await getPool().query(
-      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND udt_name = 'geometry'`,
-      [tableName]
-    );
-    const geomCols = geomColRes.rows.map(r => r.column_name);
+    const geomCols = await getGeometryColumns(tableName);
 
     // Build SELECT clause and get all columns (needed early to check for hub_site_id)
     const colRes = await getPool().query(
@@ -85,16 +81,11 @@ async function insertRecord(req, res) {
   const recordData = req.body;
 
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
 
-    const enumMap = await getEnumMap(tableName);
-    for (const [k, v] of Object.entries(recordData)) {
-      if (v == null) continue;
-      const allowed = enumMap[k];
-      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
-        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
-      }
+    const validation = await validateEnumFields(tableName, recordData);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
     }
 
     const columns = Object.keys(recordData).join(', ');
@@ -115,16 +106,11 @@ async function updateRecord(req, res) {
   const recordData = req.body;
 
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
 
-    const enumMap = await getEnumMap(tableName);
-    for (const [k, v] of Object.entries(recordData)) {
-      if (v == null) continue;
-      const allowed = enumMap[k];
-      if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(String(v))) {
-        return res.status(400).json({ error: `Invalid value for ${k}: ${v}. Allowed values: ${allowed.join(', ')}` });
-      }
+    const validation = await validateEnumFields(tableName, recordData);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.errors.join('; ') });
     }
 
     const pk = await getPrimaryKey(tableName) || 'id';
@@ -148,7 +134,6 @@ async function deleteRecord(req, res) {
   const { tableName, id } = req.params;
 
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
     const pk = await getPrimaryKey(tableName) || 'id';
     const pool = getPool();

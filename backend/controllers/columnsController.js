@@ -4,7 +4,6 @@ const { validateTableName } = require('../db/utils');
 async function getColumns(req, res) {
   const { tableName } = req.params;
   try {
-    if (!getPool()) return res.status(500).json({ error: 'Database not connected' });
     if (!validateTableName(tableName)) return res.status(400).json({ error: 'Invalid table name' });
 
     const cols = await getPool().query(
